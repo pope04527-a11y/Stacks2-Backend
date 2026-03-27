@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Stacks Admin Panel</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      background: #f5f6fa;
+      font-family: inherit;
+    }
+    body, .admin-root {
+      height: 100vh;
+      width: 100vw;
+      overflow: hidden;
+      background: inherit;
+    }
+    .admin-root {
+      display: flex;
+      height: 100vh;
+      width: 100vw;
+      background: inherit;
+      overflow: hidden;
+    }
+    /* Sidebar width increased 3x (from 60px to 180px) as requested */
+    .sidebar {
+      width: 180px;
+      background: #1749a4;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 100;
+      min-width: 180px;
+      transition: width 0.2s;
+      height: 100vh;
+    }
+    .sidebar-logo {
+      padding: 20px 0 10px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .sidebar-logo-text {
+      font-size: 13px;
+      font-weight: bold;
+      margin-top: 5px;
+      color: #fff;
+      text-align: center;
+    }
+    .sidebar-nav {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: thin;
+      scrollbar-color: #2367bb #1749a4;
+      margin-bottom: 10px;
+      padding-left: 6px; /* slight padding so content isn't flush */
+      box-sizing: border-box;
+    }
+    .sidebar-nav::-webkit-scrollbar {
+      width: 6px;
+      background: #1749a4;
+    }
+    .sidebar-nav::-webkit-scrollbar-thumb {
+      background: #2367bb;
+      border-radius: 4px;
+    }
+    /* Links keep their vertical layout but now have space */
+    .sidebar-nav a {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      color: #fff;
+      padding: 18px 0 10px 0;
+      text-decoration: none;
+      width: 100%;
+      font-size: 18px;
+      transition: background 0.18s;
+      border-left: 4px solid transparent;
+      box-sizing: border-box;
+    }
+    .sidebar-nav a.active,
+    .sidebar-nav a:focus,
+    .sidebar-nav a:hover {
+      background: #2367bb;
+      border-left: 4px solid #fff;
+    }
+    .sidebar-nav a span {
+      font-size: 10px;
+      margin-top: 4px;
+      color: #fff;
+    }
+    .sidebar-bottom {
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .sidebar-btn, .logout-btn {
+      background: none;
+      border: none;
+      color: #fff;
+      cursor: pointer;
+      width: 100%;
+      padding: 12px 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-size: 16px;
+      transition: background 0.18s;
+    }
+    .sidebar-btn span,
+    .logout-btn span {
+      font-size: 10px;
+      margin-top: 2px;
+    }
+    .sidebar-btn:hover, .logout-btn:hover {
+      background: #2367bb;
+    }
+    .profile-dropdown {
+      display: none;
+      position: absolute;
+      top: 60px;
+      right: 18px;
+      left: unset;
+      background: #fff;
+      color: #222;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      min-width: 160px;
+      z-index: 999;
+      animation: fadeIn 0.15s;
+    }
+    .profile-dropdown.show {
+      display: block;
+    }
+    .profile-info {
+      display: flex;
+      align-items: center;
+      padding: 12px;
+      gap: 10px;
+    }
+    .profile-info i {
+      font-size: 28px;
+      color: #1767c6;
+    }
+    .profile-role {
+      font-size: 12px;
+      color: #555;
+    }
+    .profile-dropdown hr {
+      margin: 0 0 6px 0;
+      border: 0;
+      border-top: 1px solid #eee;
+    }
+    .profile-dropdown a {
+      color: #1767c6;
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .profile-dropdown a:hover {
+      background: #f2f4fa;
+    }
+    .appbar {
+      height: 50px;
+      background: #fff;
+      border-bottom: 1px solid #eee;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 20px;
+      z-index: 90;
+      position: relative;
+      box-sizing: border-box;
+    }
+    .sidebar-toggle {
+      background: none;
+      border: none;
+      font-size: 22px;
+      color: #1767c6;
+      margin-right: 10px;
+      cursor: pointer;
+    }
+    .appbar-title {
+      font-size: 18px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: #1767c6;
+    }
+    .appbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: relative; /* for autocomplete positioning */
+    }
+    .appbar-welcome {
+      font-size: 14px;
+      color: #333;
+    }
+    .appbar-profile {
+      background: none;
+      border: none;
+      font-size: 22px;
+      color: #1767c6;
+      cursor: pointer;
+      position: relative;
+      z-index: 1000;
+    }
+    .main-frame-container {
+      flex: 1;
+      height: calc(100vh - 50px);
+      background: inherit;
+      overflow: hidden;
+      position: relative;
+      min-width: 0;
+      display: none; /* Hide by default, show when not on dashboard */
+    }
+    #mainFrame {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: inherit;
+      display: block;
+    }
+    .main-dashboard-content {
+      flex: 1;
+      height: calc(100vh - 50px);
+      overflow-y: auto;
+      background: inherit;
+      padding: 30px 30px 0 30px;
+      display: block;
+    }
+    .overview-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 18px;
+      margin-bottom: 32px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 8px rgba(16, 42, 80, 0.08);
+      padding: 20px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      min-width: 0;
+      min-height: 100px;
+      align-items: flex-start;
+      transition: box-shadow 0.18s;
+      cursor: pointer;
+    }
+    .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: #1749a4;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-value {
+      font-size: 28px;
+      font-weight: bold;
+      color: #222;
+      margin-top: 3px;
+    }
+    .dashboard-charts {
+      margin-top: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 24px;
+      align-items: flex-start;
+    }
+    .chart-card {
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 1px 8px rgba(16, 42, 80, 0.08);
+      padding: 20px 18px;
+      min-width: 300px;
+      min-height: 220px;
+      flex: 1 1 300px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    body.dark .autocomplete-list,
+    html.dark .autocomplete-list,
+    body.dark .dropdown-menu,
+    html.dark .dropdown-menu,
+    body.dark .ui-menu,
+    html.dark .ui-menu {
+      background: #232c43 !important;
+      color: #fff !important;
+      border: 1px solid #333 !important;
+    }
+    body.dark .autocomplete-list li,
+    html.dark .autocomplete-list li,
+    body.dark .dropdown-menu li,
+    html.dark .dropdown-menu li,
+    body.dark .ui-menu li,
+    html.dark .ui-menu li,
+    body.dark .ui-menu .ui-menu-item-wrapper,
+    html.dark .ui-menu .ui-menu-item-wrapper {
+      color: #fff !important;
+      background: none !important;
+    }
+    body.dark .autocomplete-list li.selected,
+    html.dark .autocomplete-list li.selected,
+    body.dark .dropdown-menu li.selected,
+    html.dark .dropdown-menu li.selected,
+    body.dark .ui-menu .ui-state-active,
+    html.dark .ui-menu .ui-state-active {
+      background: #1749a4 !important;
+      color: #ffd700 !important;
+    }
+    @media (max-width: 900px) {
+      .sidebar {
+        width: 0;
+        min-width: 0;
+        overflow: hidden;
+        transition: width 0.18s;
+      }
+      /* When shown on small screens, show full (3x) width as requested */
+      .sidebar.show {
+        width: 180px;
+        min-width: 180px;
+      }
+      .appbar {
+        padding-left: 10px;
+      }
+      .main-dashboard-content {
+        padding: 12px 3px 0 3px;
+      }
+    }
+    /* Ensure .sidebar.show on desktop uses the larger width as well */
+    .sidebar.show {
+      width: 180px;
+      min-width: 180px;
+    }
+    body.dark, html.dark {
+      background: #161d2a !important;
+      color: #f5f6f5 !important;
+    }
+    body.dark .appbar, html.dark .appbar {
+      background: #1a2235 !important;
+      color: #fff !important;
+      border-bottom: 1px solid #222;
+    }
+    body.dark .sidebar, html.dark .sidebar {
+      background: #141a29 !important;
+    }
+    body.dark .sidebar-nav a,
+    html.dark .sidebar-nav a {
+      color: #fff !important;
+    }
+    body.dark .sidebar-nav a.active,
+    html.dark .sidebar-nav a.active,
+    body.dark .sidebar-nav a:hover,
+    html.dark .sidebar-nav a:hover {
+      background: #253154 !important;
+      border-left: 4px solid #ffd700 !important;
+    }
+    body.dark .sidebar-btn,
+    html.dark .sidebar-btn,
+    body.dark .logout-btn,
+    html.dark .logout-btn {
+      color: #fff !important;
+      background: #141a29 !important;
+    }
+    body.dark .sidebar-btn:hover,
+    html.dark .sidebar-btn:hover,
+    body.dark .logout-btn:hover,
+    html.dark .logout-btn:hover {
+      background: #253154 !important;
+    }
+    body.dark .profile-dropdown,
+    html.dark .profile-dropdown {
+      background: #253154 !important;
+      color: #fff !important;
+    }
+    body.dark .card, html.dark .card,
+    body.dark .chart-card, html.dark .chart-card {
+      background: #232c43 !important;
+      color: #fff !important;
+      box-shadow: 0 1px 8px rgba(0,0,0,0.11);
+    }
+    body.dark .card-title, html.dark .card-title {
+      color: #ffb700 !important;
+    }
+    body.dark .card-value, html.dark .card-value {
+      color: #fff !important;
+    }
+    .toast {
+      visibility: hidden;
+      min-width: 180px;
+      background-color: #1767c6;
+      color: #fff;
+      text-align: center;
+      border-radius: 7px;
+      padding: 10px;
+      position: fixed;
+      z-index: 9999;
+      left: 50%;
+      bottom: 36px;
+      font-size: 15px;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+    .toast.show {
+      visibility: visible;
+      opacity: 1;
+    }
+
+    /* Add User modal styles (minimal, non-intrusive) */
+    .add-user-modal { position: fixed; left: 0; top: 0; right: 0; bottom: 0; display: none; align-items:center; justify-content:center; background: rgba(0,0,0,0.45); z-index: 2000; }
+    .add-user-panel { background: #fff; width: 420px; max-width: 92%; padding: 18px; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .add-user-panel h3 { margin: 0 0 12px 0; }
+    .add-user-panel .form-row { margin-bottom:10px; }
+    .add-user-panel label { font-weight:600; display:block; margin-bottom:4px; }
+    .add-user-panel input, .add-user-panel select { width:100%; padding:8px; box-sizing:border-box; }
+    .add-user-actions { display:flex; gap:8px; margin-top:8px; justify-content:flex-end; }
+    .btn-primary { background: #1767c6; color: #fff; border: 0; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+    .btn-ghost { background: transparent; border: 1px solid #ddd; padding: 8px 12px; border-radius:6px; cursor:pointer; }
+
+    /* Appbar user search autocomplete */
+    .appbar-search {
+      position: relative;
+      display: inline-block;
+    }
+    .appbar-search input[type="text"] {
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid #e6e6e6;
+      width: 220px;
+      box-sizing: border-box;
+    }
+    .appbar-autocomplete {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      width: 100%;
+      background: #fff;
+      border: 1px solid #e6e6e6;
+      box-shadow: 0 6px 18px rgba(2,6,23,0.08);
+      max-height: 260px;
+      overflow-y: auto;
+      z-index: 1200;
+      border-radius: 8px;
+    }
+    .appbar-autocomplete .item {
+      padding: 8px 10px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: center;
+      font-size: 13px;
+      color: #111827;
+    }
+    .appbar-autocomplete .item:hover {
+      background: #f3f4f6;
+    }
+    @keyframes fadeIn { from { opacity:0 } to { opacity:1 } }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <script>
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+    if (localStorage.getItem("adminDarkMode") === "true") {
+      document.documentElement.classList.add("dark");
+      document.body.classList.add("dark");
+    }
+  </script>
+  <div class="admin-root">
+    <div class="sidebar" id="sidebar">
+      <div class="sidebar-logo">
+        <div class="svg-logo">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <rect width="36" height="36" rx="10" fill="#1767c6"/>
+            <circle cx="18" cy="18" r="12" fill="#fff"/>
+            <rect x="11" y="15" width="14" height="6" rx="3" fill="#1767c6"/>
+            <rect x="17" y="11" width="2" height="14" rx="1" fill="#1767c6"/>
+          </svg>
+        </div>
+        <span class="sidebar-logo-text">Stacks Admin</span>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <a href="#" data-page="dashboard" class="active"><i class="fa fa-home"></i> <span>Dashboard</span></a>
+        <a href="#" data-page="users.html"><i class="fa fa-users"></i> <span>Users</span></a>
+        <a href="#" data-page="products.html"><i class="fa fa-box"></i> <span>Products</span></a>
+        <a href="#" data-page="combos.html"><i class="fa fa-layer-group"></i> <span>Combos</span></a>
+        <a href="#" data-page="tasks.html"><i class="fa fa-tasks"></i> <span>Tasks</span></a>
+        <a href="#" data-page="transactions.html"><i class="fa fa-money-bill"></i> <span>Transactions</span></a>
+        <a href="#" data-page="withdrawals.html"><i class="fa fa-money-check-alt"></i> <span>Withdrawals</span></a>
+        <a href="#" data-page="notifications.html"><i class="fa fa-bell"></i> <span>Notifications</span></a>
+        <a href="#" data-page="vip-manager.html"><i class="fa fa-star"></i> <span>VIP Levels</span></a>
+        <a href="#" data-page="activity.html"><i class="fa fa-clipboard-list"></i> <span>Activity Logs</span></a>
+        <a href="#" data-page="balance-adder.html"><i class="fa fa-plus-circle"></i> <span>Balance Adder</span></a>
+        <a href="#" data-page="tracked-clicks.html"><i class="fa fa-map-marker-alt"></i> <span>Tracked Clicks</span></a>
+        <a href="#" data-page="settings.html"><i class="fa fa-cog"></i> <span>Settings</span></a>
+      </nav>
+      <div class="sidebar-bottom">
+        <button class="sidebar-btn" onclick="toggleDarkMode()">
+          <i class="fa fa-moon"></i> <span>Dark Mode</span>
+        </button>
+        <button class="sidebar-btn" id="profileDropdownBtn" onclick="showProfileDropdown(event)">
+          <i class="fa fa-user-circle"></i> <span>Profile</span>
+        </button>
+        <button class="logout-btn" onclick="logout()">
+          <i class="fa fa-sign-out-alt"></i> <span>Logout</span>
+        </button>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;min-width:0;position:relative;">
+      <div class="appbar" id="appbar">
+        <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle sidebar">
+          <i class="fa fa-bars"></i>
+        </button>
+        <div class="appbar-title" id="appbarTitle">
+          <i class="fa fa-chart-bar"></i> Dashboard
+        </div>
+        <div class="appbar-actions">
+          <!-- Appbar user search (autocomplete) -->
+          <div class="appbar-search" id="appbarSearchWrap">
+            <input id="appbarUserSearch" type="text" placeholder="Search user..." oninput="onAppbarUserInput()" onkeydown="onAppbarUserKeyDown(event)" />
+            <div id="appbarAutocomplete" class="appbar-autocomplete" style="display:none;"></div>
+          </div>
+
+          <span class="appbar-welcome">Welcome, Admin</span>
+
+          <!-- ADD USER BUTTON (non-intrusive) -->
+          <button id="openAddUserBtn" title="Add User" style="background:#0ea5a0;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;">
+            <i class="fa fa-user-plus" style="margin-right:6px;"></i> Add User
+          </button>
+
+          <button class="appbar-profile" id="profileDropdownBtnTop" onclick="showProfileDropdown(event)">
+            <i class="fa fa-user-circle"></i>
+          </button>
+        </div>
+        <div class="profile-dropdown" id="profileDropdown" style="right:20px;top:55px;">
+          <div class="profile-info">
+            <i class="fa fa-user-circle"></i>
+            <div>
+              <div><b>Admin</b></div>
+              <div class="profile-role">Super Admin</div>
+            </div>
+          </div>
+          <hr />
+          <a href="#" onclick="loadPage('settings.html');hideProfileDropdown();"><i class="fa fa-cog"></i> Account Settings</a>
+          <a href="#" onclick="logout()"><i class="fa fa-sign-out-alt"></i> Logout</a>
+        </div>
+      </div>
+      <!-- Dashboard Content (default visible) -->
+      <div class="main-dashboard-content" id="dashboardContent">
+        <section class="overview-cards" id="overviewCards">
+          <div class="card" onclick="showIframePage('users.html')">
+            <div class="card-title"><i class="fa fa-users"></i> User Manager</div>
+            <div class="card-value" id="totalUsers">-</div>
+          </div>
+          <div class="card" onclick="showIframePage('products.html')">
+            <div class="card-title"><i class="fa fa-box"></i> Products</div>
+            <div class="card-value"></div>
+          </div>
+          <div class="card" onclick="showIframePage('tasks.html')">
+            <div class="card-title"><i class="fa fa-tasks"></i> Tasks</div>
+            <div class="card-value" id="activeTasks">-</div>
+          </div>
+          <div class="card" onclick="showIframePage('withdrawals.html')">
+            <div class="card-title"><i class="fa fa-money-check-alt"></i> Pending Withdrawals</div>
+            <div class="card-value" id="pendingWithdrawals">-</div>
+          </div>
+        </section>
+        <div class="dashboard-charts">
+          <!-- Example analytics using Chart.js -->
+          <div class="chart-card">
+            <div style="font-weight:bold;margin-bottom:6px;">User Growth (Weekly)</div>
+            <canvas id="chartUsers"></canvas>
+          </div>
+          <div class="chart-card">
+            <div style="font-weight:bold;margin-bottom:6px;">Revenue (Monthly)</div>
+            <canvas id="chartRevenue"></canvas>
+          </div>
+        </div>
+      </div>
+      <!-- Feature iframe (hidden by default) -->
+      <div class="main-frame-container" id="mainFrameContainer">
+        <iframe id="mainFrame" src="" title="Admin Content"></iframe>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add User Modal (in-page) -->
+  <div class="add-user-modal" id="addUserModal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="add-user-panel" role="document">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <h3 id="addUserTitle">Create Training Account</h3>
+        <button id="closeAddUserModal" aria-label="Close" style="background:transparent;border:0;font-size:18px;cursor:pointer;">✕</button>
+      </div>
+
+      <form id="addUserForm" autocomplete="off">
+        <div class="form-row">
+          <label>Username *</label>
+          <input id="au_username" required />
+        </div>
+        <div class="form-row">
+          <label>Phone *</label>
+          <input id="au_phone" required />
+        </div>
+        <div class="form-row">
+          <label>Login Password *</label>
+          <input id="au_loginPassword" type="password" required />
+        </div>
+        <div class="form-row">
+          <label>Withdraw Password *</label>
+          <input id="au_withdrawPassword" type="password" required />
+        </div>
+        <div class="form-row">
+          <label>Invite Code (optional)</label>
+          <input id="au_inviteCode" placeholder="leave empty to auto-generate" />
+        </div>
+        <div class="form-row">
+          <label>Link to Inviter (referredBy)</label>
+          <input id="au_referredBy" placeholder="client invite code (the inviter)" />
+        </div>
+
+        <div class="add-user-actions">
+          <button type="button" id="au_cancel" class="btn-ghost">Cancel</button>
+          <button type="submit" id="au_save" class="btn-primary">Create & Link</button>
+        </div>
+
+        <div id="au_msg" style="margin-top:10px;color:#333;font-size:13px;"></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // Chart.js instance refs to fix "canvas already in use"
+    let chartUsersInstance = null;
+    let chartRevenueInstance = null;
+
+    // Responsive sidebar toggle
+    function toggleSidebar() {
+      const sidebar = document.getElementById("sidebar");
+      sidebar.classList.toggle("show");
+    }
+    document.getElementById("sidebarToggle").addEventListener("click", toggleSidebar);
+
+    // Dark Mode (persistent)
+    function toggleDarkMode() {
+      document.body.classList.toggle("dark");
+      document.documentElement.classList.toggle("dark");
+      const isDark = document.body.classList.contains("dark");
+      localStorage.setItem("adminDarkMode", isDark ? "true" : "false");
+      showToast(isDark ? "Dark mode enabled!" : "Dark mode disabled!");
+      syncIframeDarkMode();
+    }
+    function syncIframeDarkMode() {
+      const iframe = document.getElementById('mainFrame');
+      if (iframe && iframe.contentWindow && iframe.src) {
+        try {
+          iframe.contentWindow.postMessage(
+            { type: "setDarkMode", enable: document.body.classList.contains("dark") },
+            "*"
+          );
+        } catch(e) {}
+      }
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      syncIframeDarkMode();
+      showDashboardOverview();
+      renderCharts();
+      // preload users for appbar search autocomplete
+      fetchAllUsersForAppbar();
+    });
+    document.body.addEventListener('classChange', syncIframeDarkMode);
+    document.getElementById('mainFrame').addEventListener('load', syncIframeDarkMode);
+
+    // Sidebar navigation logic (load page into iframe)
+    document.querySelectorAll('.sidebar-nav a').forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+        const page = this.getAttribute('data-page');
+        document.querySelectorAll('.sidebar-nav a').forEach(l => l.classList.remove('active'));
+        this.classList.add('active');
+        updateAppbarTitle(page);
+        hideProfileDropdown();
+        if(page === "dashboard") {
+          showDashboardOverview();
+        } else {
+          showIframePage(page);
+        }
+      });
+    });
+
+    // Real-time dashboard stats: fetch from backend
+    async function updateDashboardStats() {
+      try {
+        const headers = { 'x-admin-token': localStorage.getItem("adminToken") || '' };
+        const [usersRes, balanceRes, tasksRes, withdrawalsRes] = await Promise.all([
+          fetch('/admin/total-users', { headers }).then(r => r.json()).catch(() => ({ count: "-" })),
+          fetch('/admin/total-balance', { headers }).then(r => r.json()).catch(() => ({ total: "-" })),
+          fetch('/admin/active-tasks', { headers }).then(r => r.json()).catch(() => ({ count: "-" })),
+          fetch('/admin/pending-withdrawals', { headers }).then(r => r.json()).catch(() => ({ count: "-" })),
+        ]);
+
+        // helper to set textContent only when element exists
+        const setIf = (id, val) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = val;
+        };
+
+        setIf("totalUsers", (usersRes && typeof usersRes.count !== 'undefined') ? usersRes.count : "-");
+        setIf("totalBalance", (balanceRes && balanceRes.total) ? `$${balanceRes.total}` : "-");
+        setIf("activeTasks", (tasksRes && typeof tasksRes.count !== 'undefined') ? tasksRes.count : "-");
+        setIf("pendingWithdrawals", (withdrawalsRes && typeof withdrawalsRes.count !== 'undefined') ? withdrawalsRes.count : "-");
+      } catch (e) {
+        console.error('updateDashboardStats error', e);
+        // fail silently in UI but keep other scripts running
+      }
+    }
+
+    function showDashboardOverview() {
+      document.getElementById('dashboardContent').style.display = "block";
+      document.getElementById('mainFrameContainer').style.display = "none";
+      updateDashboardStats();
+      renderCharts();
+    }
+    function showIframePage(page) {
+      document.getElementById('mainFrame').src = page;
+      document.getElementById('mainFrameContainer').style.display = "block";
+      document.getElementById('dashboardContent').style.display = "none";
+    }
+
+    function updateAppbarTitle(pageFile) {
+      const map = {
+        'dashboard': { icon: 'fa-chart-bar', text: 'Dashboard' },
+        'users.html': { icon: 'fa-users', text: 'Users' },
+        'products.html': { icon: 'fa-box', text: 'Products' },
+        'combos.html': { icon: 'fa-layer-group', text: 'Combos' },
+        'tasks.html': { icon: 'fa-tasks', text: 'Tasks' },
+        'transactions.html': { icon: 'fa-money-bill', text: 'Transactions' },
+        'withdrawals.html': { icon: 'fa-money-check-alt', text: 'Withdrawals' },
+        'notifications.html': { icon: 'fa-bell', text: 'Notifications' },
+        'vip-manager.html': { icon: 'fa-star', text: 'VIP Levels' },
+        'activity.html': { icon: 'fa-clipboard-list', text: 'Activity Logs' },
+        'balance-adder.html': { icon: 'fa-plus-circle', text: 'Balance Adder' },
+        'tracked-clicks.html': { icon: 'fa-map-marker-alt', text: 'Tracked Clicks' },
+        'settings.html': { icon: 'fa-cog', text: 'Settings' }
+      };
+      const info = map[pageFile] || map['dashboard'];
+      document.getElementById("appbarTitle").innerHTML = `<i class="fa ${info.icon}"></i> ${info.text}`;
+    }
+
+    // Profile dropdown
+    function showProfileDropdown(event) {
+      event.stopPropagation();
+      const dropdown = document.getElementById("profileDropdown");
+      dropdown.classList.toggle("show");
+      const rect = event.target.getBoundingClientRect();
+      dropdown.style.right = (window.innerWidth - rect.right + 5) + "px";
+      dropdown.style.top = (rect.bottom + 8) + "px";
+    }
+    function hideProfileDropdown() {
+      document.getElementById("profileDropdown").classList.remove("show");
+    }
+    document.body.addEventListener('click', function(e){
+      if (!e.target.closest('.profile-dropdown') && !e.target.closest('.appbar-profile') && !e.target.closest('.sidebar-btn')) {
+        hideProfileDropdown();
+      }
+    });
+
+    // Toast
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+
+    // Logout
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    function handleResponsiveSidebar() {
+      if (window.innerWidth < 900) {
+        document.getElementById("sidebar").classList.remove("show");
+      } else {
+        document.getElementById("sidebar").classList.add("show");
+      }
+    }
+    window.addEventListener("resize", handleResponsiveSidebar);
+    window.addEventListener("DOMContentLoaded", handleResponsiveSidebar);
+
+    // Chart.js analytics (for dashboard)
+    function renderCharts() {
+      // Users chart (dummy data)
+      var ctxUsers = document.getElementById('chartUsers');
+      if (chartUsersInstance) { chartUsersInstance.destroy(); }
+      if (ctxUsers && ctxUsers.getContext) {
+        ctxUsers.height = 170;
+        chartUsersInstance = new Chart(ctxUsers, {
+          type: 'line',
+          data: {
+            labels: ['Week 1', 'Week 2', 'Week 3', 'Week 4'],
+            datasets: [{
+              label: 'Users',
+              data: [12, 15, 18, 21],
+              borderColor: '#1767c6',
+              backgroundColor: 'rgba(23,103,198,0.08)',
+              fill: true,
+              tension: 0.4,
+              pointRadius: 3
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+      }
+      // Revenue chart (dummy data)
+      var ctxRevenue = document.getElementById('chartRevenue');
+      if (chartRevenueInstance) { chartRevenueInstance.destroy(); }
+      if (ctxRevenue && ctxRevenue.getContext) {
+        ctxRevenue.height = 170;
+        chartRevenueInstance = new Chart(ctxRevenue, {
+          type: 'bar',
+          data: {
+            labels: ['Jan', 'Feb', 'Mar', 'Apr'],
+            datasets: [{
+              label: 'Revenue',
+              data: [1200, 1400, 1800, 2100],
+              backgroundColor: '#1767c6'
+            }]
+          },
+          options: {
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+          }
+        });
+      }
+    }
+
+    // On initial load, set Dashboard as active and trigger dark mode sync
+    document.querySelector('.sidebar-nav a[data-page="dashboard"]').classList.add('active');
+    updateAppbarTitle("dashboard");
+    syncIframeDarkMode();
+
+    /* ===== Add User modal wiring (Safer + debug logging) ===== */
+    (function(){
+      const openBtn = document.getElementById('openAddUserBtn');
+      const modal = document.getElementById('addUserModal');
+      const closeBtn = document.getElementById('closeAddUserModal');
+      const cancelBtn = document.getElementById('au_cancel');
+      const form = document.getElementById('addUserForm');
+      const msgEl = document.getElementById('au_msg');
+
+      function showModal() { msgEl.textContent = ''; modal.style.display = 'flex'; modal.setAttribute('aria-hidden','false'); }
+      function hideModal() { modal.style.display = 'none'; modal.setAttribute('aria-hidden','true'); }
+
+      openBtn && openBtn.addEventListener('click', (e) => { e.preventDefault(); showModal(); });
+      closeBtn && closeBtn.addEventListener('click', hideModal);
+      cancelBtn && cancelBtn.addEventListener('click', hideModal);
+
+      async function getAdminTokenPrompt() {
+        let token = localStorage.getItem('adminToken');
+        if (!token) {
+          token = prompt('Paste admin token from login (will be saved in localStorage for this browser).');
+          if (token) localStorage.setItem('adminToken', token);
+        }
+        return token;
+      }
+
+      async function createMinimalUser(token, payload) {
+        // Defensive: never send a client-supplied _id
+        if (payload && (payload._id || payload.id)) { delete payload._id; delete payload.id; }
+        console.debug('[admin] createMinimalUser payload:', payload);
+        const res = await fetch('/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+          credentials: 'include',
+          body: JSON.stringify(payload)
+        });
+        const raw = await res.text();
+        let body;
+        try { body = JSON.parse(raw); } catch(e){ body = { success: false, __raw: raw }; }
+        console.debug('[admin] createMinimalUser response status:', res.status, 'body:', body);
+        return { ok: res.ok, status: res.status, body };
+      }
+
+      async function updateUserFields(token, username, updates) {
+        if (!username) throw new Error('username required for update');
+        console.debug('[admin] updateUserFields', username, updates);
+        const res = await fetch('/admin/user/' + encodeURIComponent(username), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+          credentials: 'include',
+          body: JSON.stringify({ action: 'edit', updates })
+        });
+        const raw = await res.text();
+        let body;
+        try { body = JSON.parse(raw); } catch(e) { body = { success: false, __raw: raw }; }
+        console.debug('[admin] updateUserFields response', res.status, body);
+        return { ok: res.ok, status: res.status, body };
+      }
+
+      form.addEventListener('submit', async (ev) => {
+        ev.preventDefault();
+        msgEl.style.color = '#333';
+        msgEl.textContent = 'Working...';
+
+        try {
+          const token = await getAdminTokenPrompt();
+          if (!token) throw new Error('Admin token required');
+
+          const username = document.getElementById('au_username').value.trim();
+          const phone = document.getElementById('au_phone').value.trim();
+          const loginPassword = document.getElementById('au_loginPassword').value;
+          const withdrawPassword = document.getElementById('au_withdrawPassword').value;
+          const inviteCode = document.getElementById('au_inviteCode').value.trim();
+          const referredBy = document.getElementById('au_referredBy').value.trim();
+
+          if (!username || !phone || !loginPassword || !withdrawPassword) {
+            msgEl.style.color = '#c62828';
+            msgEl.textContent = 'Please fill required fields.';
+            return;
+          }
+
+          // create minimal user (do not include _id)
+          const createPayload = { username, phone, vipLevel: 1, balance: 0 };
+          const createResp = await createMinimalUser(token, createPayload);
+
+          if (!createResp.ok || (createResp.body && createResp.body.success === false)) {
+            const serverMsg = createResp.body && (createResp.body.message || createResp.body.__raw) ? (createResp.body.message || createResp.body.__raw) : `HTTP ${createResp.status}`;
+            console.warn('[admin] create user failed:', serverMsg, createResp.body);
+            throw new Error(serverMsg || 'Failed to create user');
+          }
+
+          const updates = {
+            loginPassword,
+            withdrawPassword,
+            inviteCode: inviteCode || undefined,
+            referredBy: referredBy || undefined
+          };
+          Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
+
+          if (Object.keys(updates).length > 0) {
+            const updResp = await updateUserFields(token, username, updates);
+            if (!updResp.ok || (updResp.body && updResp.body.success === false)) {
+              const serverMsg = updResp.body && (updResp.body.message || updResp.body.__raw) ? (updResp.body.message || updResp.body.__raw) : `HTTP ${updResp.status}`;
+              console.warn('[admin] update user fields failed', serverMsg, updResp.body);
+              throw new Error(serverMsg || 'Failed to update user fields');
+            }
+          }
+
+          msgEl.style.color = '#2e7d32';
+          msgEl.textContent = 'Training account created and linked.';
+          setTimeout(hideModal, 700);
+          showToast('User created and linked');
+          if (typeof refreshUserList === 'function') refreshUserList();
+        } catch (err) {
+          console.error('[admin] Add user error:', err);
+          msgEl.style.color = '#c62828';
+          msgEl.textContent = 'Error: ' + (err.message || 'Unknown');
+        }
+      });
+
+      // close modal on outside click
+      window.addEventListener('click', (evt) => { if (evt.target === modal) hideModal(); });
+    })();
+    /* ===== end Add User modal wiring ===== */
+
+    //
+    // Appbar user search: fetch users once and show autocomplete; selecting opens users.html#user=<username>
+    //
+    let _appbarUsersCache = [];
+
+    async function fetchAllUsersForAppbar() {
+      try {
+        const res = await fetch('/admin/users', {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (res.ok) {
+          _appbarUsersCache = await res.json();
+        } else {
+          _appbarUsersCache = [];
+        }
+      } catch (e) {
+        _appbarUsersCache = [];
+      }
+    }
+
+    function onAppbarUserInput() {
+      const q = document.getElementById('appbarUserSearch').value.trim().toLowerCase();
+      const list = document.getElementById('appbarAutocomplete');
+      if (!q) {
+        list.style.display = 'none';
+        return;
+      }
+      const matches = _appbarUsersCache.filter(u => {
+        if (!u || !u.username) return false;
+        return u.username.toLowerCase().includes(q) || (u.phone && String(u.phone).includes(q));
+      }).slice(0, 30);
+      renderAppbarAutocomplete(matches);
+    }
+
+    function renderAppbarAutocomplete(matches) {
+      const list = document.getElementById('appbarAutocomplete');
+      list.innerHTML = '';
+      if (!matches.length) {
+        list.style.display = 'none';
+        return;
+      }
+      matches.forEach(u => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        const left = document.createElement('div');
+        left.textContent = u.username;
+        const right = document.createElement('div');
+        right.style.opacity = 0.8;
+        right.textContent = `$${Number(u.balance||0).toFixed(2)}`;
+        div.appendChild(left);
+        div.appendChild(right);
+        div.onclick = () => selectUserFromAppbar(u.username);
+        list.appendChild(div);
+      });
+      list.style.display = 'block';
+    }
+
+    function onAppbarUserKeyDown(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const q = document.getElementById('appbarUserSearch').value.trim();
+        if (!q) return;
+        // If exact match exists, open that user; otherwise open users page with hash to search there.
+        const exact = _appbarUsersCache.find(u => u.username === q);
+        if (exact) {
+          selectUserFromAppbar(exact.username);
+          return;
+        }
+        // fallback: open users page with hash so users.html can read hash and open drawer
+        showIframePage('users.html#user=' + encodeURIComponent(q));
+        document.getElementById('appbarAutocomplete').style.display = 'none';
+      } else if (e.key === 'Escape') {
+        document.getElementById('appbarAutocomplete').style.display = 'none';
+      }
+    }
+
+    function selectUserFromAppbar(username) {
+      if (!username) return;
+      // open users page in iframe with hash so users.html opens that user in drawer
+      showIframePage('users.html#user=' + encodeURIComponent(username));
+      document.getElementById('appbarAutocomplete').style.display = 'none';
+      document.getElementById('appbarUserSearch').value = '';
+    }
+
+    // hide autocomplete when clicking outside
+    document.addEventListener('click', (evt) => {
+      const wrap = document.getElementById('appbarSearchWrap');
+      if (!wrap.contains(evt.target)) {
+        document.getElementById('appbarAutocomplete').style.display = 'none';
+      }
+    });
+
+  </script>
+</body>
+</html>

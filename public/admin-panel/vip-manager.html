@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - VIP Manager</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <script>
+    // Redirect to login if token missing
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>VIP Level Manager</h2>
+          <input type="text" id="searchInput" placeholder="Search by username or VIP level..." oninput="searchUsers()" />
+          <button class="export-btn" onclick="exportVipCSV()"><i class="fa fa-download"></i> Export CSV</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllUsers" onclick="toggleSelectAllUsers(this)"></th>
+                <th>User ID</th>
+                <th>Username</th>
+                <th>Phone</th>
+                <th>VIP Level</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="usersTable">
+              <!-- User rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div class="bulk-actions" id="bulkActions" style="display:none;">
+          <button class="bulk-btn" onclick="bulkUpgradeVip()"><i class="fa fa-arrow-up"></i> Upgrade VIP</button>
+          <button class="bulk-btn" onclick="bulkDowngradeVip()"><i class="fa fa-arrow-down"></i> Downgrade VIP</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Edit VIP Modal -->
+  <div class="modal" id="vipModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeVipModal()">&times;</span>
+      <h2 id="vipModalTitle">Edit VIP Level</h2>
+      <form id="vipForm">
+        <input type="text" id="modalUsername" placeholder="Username" readonly />
+        <input type="number" id="modalVipLevel" placeholder="VIP Level" min="1" max="10" required />
+        <button type="submit" class="add-btn">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- VIP MANAGER ---
+    let selectedUsers = new Set();
+    let editingUserIndex = null;
+    let allUsers = [];
+
+    // Fetch all users from API
+    async function fetchUsers() {
+      try {
+        const res = await fetch('/admin/users', {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (!res.ok) throw new Error('Unauthorized');
+        allUsers = await res.json();
+        renderUsers(allUsers);
+      } catch (err) {
+        alert("Session expired or unauthorized. Please login again.");
+        logout();
+      }
+    }
+
+    // Render users in table
+    function renderUsers(users) {
+      const table = document.getElementById("usersTable");
+      table.innerHTML = "";
+      users.forEach((user, idx) => {
+        const checked = selectedUsers.has(idx) ? "checked" : "";
+        table.innerHTML += `
+          <tr>
+            <td><input type="checkbox" onclick="selectUser(${idx}, this)" ${checked}></td>
+            <td>${user.id || ""}</td>
+            <td>${user.username || ""}</td>
+            <td>${user.phone || ""}</td>
+            <td>${user.vipLevel || 1}</td>
+            <td>
+              <span class="status-badge ${
+                user.status === 'Active' ? 'status-active'
+                : 'status-suspended'
+              }">
+                ${user.status || "Active"}
+              </span>
+            </td>
+            <td class="action-icons">
+              <button class="icon-btn" title="Edit VIP" onclick="editVip(${idx})"><i class="fa fa-edit"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById("bulkActions").style.display = selectedUsers.size > 0 ? "block" : "none";
+    }
+
+    // Select/deselect user for bulk actions
+    function selectUser(idx, checkbox) {
+      if (checkbox.checked) selectedUsers.add(idx);
+      else selectedUsers.delete(idx);
+      document.getElementById("bulkActions").style.display = selectedUsers.size > 0 ? "block" : "none";
+    }
+    function toggleSelectAllUsers(master) {
+      selectedUsers = new Set();
+      if (master.checked) {
+        allUsers.forEach((_, idx) => selectedUsers.add(idx));
+      }
+      renderUsers(allUsers);
+      document.getElementById("selectAllUsers").checked = master.checked;
+    }
+
+    // Search
+    function searchUsers() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      const filtered = allUsers.filter(user =>
+        (user.username && user.username.toLowerCase().includes(query)) ||
+        (user.vipLevel && (user.vipLevel + '').includes(query))
+      );
+      renderUsers(filtered);
+    }
+
+    // Edit VIP modal
+    function editVip(idx) {
+      editingUserIndex = idx;
+      const user = allUsers[idx];
+      document.getElementById("vipModalTitle").textContent = "Edit VIP Level";
+      document.getElementById("modalUsername").value = user.username;
+      document.getElementById("modalVipLevel").value = user.vipLevel || 1;
+      document.getElementById("vipModal").style.display = "block";
+    }
+    function closeVipModal() {
+      document.getElementById("vipModal").style.display = "none";
+    }
+
+    document.getElementById("vipForm").onsubmit = async function(e) {
+      e.preventDefault();
+      const username = document.getElementById("modalUsername").value;
+      const vip = parseInt(document.getElementById("modalVipLevel").value, 10);
+      if (!username || isNaN(vip) || vip < 1) return;
+      await fetch('/admin/update-vip', {
+        method: 'POST',
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-token": localStorage.getItem('adminToken')
+        },
+        body: JSON.stringify({ username, vip })
+      });
+      showToast("VIP level updated!");
+      closeVipModal();
+      fetchUsers();
+    };
+
+    // Bulk VIP actions
+    async function bulkUpgradeVip() {
+      for (let idx of selectedUsers) {
+        const user = allUsers[idx];
+        const newVip = Math.min((user.vipLevel || 1) + 1, 10);
+        await fetch('/admin/update-vip', {
+          method: 'POST',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ username: user.username, vip: newVip })
+        });
+      }
+      showToast("Selected users upgraded!");
+      fetchUsers();
+      selectedUsers.clear();
+    }
+    async function bulkDowngradeVip() {
+      for (let idx of selectedUsers) {
+        const user = allUsers[idx];
+        const newVip = Math.max((user.vipLevel || 1) - 1, 1);
+        await fetch('/admin/update-vip', {
+          method: 'POST',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ username: user.username, vip: newVip })
+        });
+      }
+      showToast("Selected users downgraded!");
+      fetchUsers();
+      selectedUsers.clear();
+    }
+
+    // Export VIP table to CSV
+    function exportVipCSV() {
+      const csv = [
+        ["User ID", "Username", "Phone", "VIP Level", "Status"],
+        ...allUsers.map(u => [u.id, u.username, u.phone, u.vipLevel, u.status])
+      ].map(row => row.map(String).map(s=>`"${s.replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "vip-users.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Exported to CSV!");
+    }
+
+    // Toast and logout helpers
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    // Modal close on outside click
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+      }
+    }
+
+    // Initial load
+    fetchUsers();
+  </script>
+<script>
+window.addEventListener("message", function(event) {
+  if (event.data && event.data.type === "setDarkMode") {
+    if (event.data.enable) {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+      document.documentElement.classList.remove("dark");
+    }
+  }
+});
+// On load, also check localStorage (for direct navigation)
+if (localStorage.getItem("adminDarkMode") === "true") {
+  document.body.classList.add("dark");
+  document.documentElement.classList.add("dark");
+}
+</script>
+</body>
+</html>

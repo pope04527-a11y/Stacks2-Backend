@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - Withdrawals Management</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <script>
+    // Redirect to login if token missing
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>Withdrawals Management</h2>
+          <input type="text" id="searchInput" placeholder="Search by username, status, or method..." oninput="searchWithdrawals()" />
+          <button class="export-btn" onclick="exportWithdrawalsCSV()"><i class="fa fa-download"></i> Export CSV</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllWithdrawals" onclick="toggleSelectAllWithdrawals(this)"></th>
+                <th>Withdrawal ID</th>
+                <th>User</th>
+                <th>Amount</th>
+                <th>Method</th>
+                <th>Status</th>
+                <th>Requested At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="withdrawalsTable">
+              <!-- Withdrawal rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div class="bulk-actions" id="bulkActions" style="display:none;">
+          <button class="bulk-btn" onclick="bulkApproveWithdrawals()"><i class="fa fa-check"></i> Approve Selected</button>
+          <button class="bulk-btn" onclick="bulkRejectWithdrawals()"><i class="fa fa-times"></i> Reject Selected</button>
+          <button class="bulk-btn" onclick="bulkDeleteWithdrawals()"><i class="fa fa-trash"></i> Delete Selected</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Approve/Reject Modal -->
+  <div class="modal" id="withdrawalModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeWithdrawalModal()">&times;</span>
+      <h2 id="withdrawalModalTitle">Update Withdrawal</h2>
+      <form id="withdrawalForm">
+        <input type="text" id="modalUser" placeholder="User" readonly />
+        <input type="number" id="modalAmount" placeholder="Amount" readonly />
+        <input type="text" id="modalMethod" placeholder="Method" readonly />
+        <select id="modalStatus" required>
+          <option value="Pending">Pending</option>
+          <option value="Approved">Approved</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+        <input type="text" id="modalRequestedAt" placeholder="Requested At" readonly />
+        <button type="submit" class="add-btn">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- WITHDRAWALS MANAGEMENT WITH RESTful API ---
+    let selectedWithdrawals = new Set();
+    let editingWithdrawalIndex = null;
+    let allWithdrawals = [];
+
+    // Fetch all withdrawals from API
+    async function fetchWithdrawals() {
+      try {
+        const res = await fetch('/admin/withdrawals', {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (!res.ok) throw new Error('Unauthorized');
+        // Expect server to return an array of withdrawals
+        allWithdrawals = await res.json();
+        renderWithdrawals(allWithdrawals);
+      } catch (err) {
+        alert("Session expired or unauthorized. Please login again.");
+        logout();
+      }
+    }
+
+    // Render withdrawals in table
+    function renderWithdrawals(withdrawals) {
+      const table = document.getElementById("withdrawalsTable");
+      table.innerHTML = "";
+      withdrawals.forEach((wdl, idx) => {
+        const checked = selectedWithdrawals.has(idx) ? "checked" : "";
+        let statusBadgeClass = "";
+        let statusText = wdl.status || "Pending";
+
+        // Normalize id retrieval: prefer _id (Mongo), then id, then transactionId
+        const wid = wdl._id || wdl.id || wdl.transactionId || "";
+
+        // Show "Pending" (reviewing) in red, "Completed"/"Approved" in green, "Rejected" in gray
+        if (statusText.toLowerCase() === "pending" || statusText.toLowerCase() === "reviewing") {
+          statusBadgeClass = "status-danger";
+        } else if (statusText.toLowerCase() === "completed" || statusText.toLowerCase() === "approved" || statusText.toLowerCase() === "success") {
+          statusBadgeClass = "status-active";
+          statusText = "Completed";
+        } else if (statusText.toLowerCase() === "rejected" || statusText.toLowerCase() === "failed") {
+          statusBadgeClass = "status-suspended";
+        } else {
+          statusBadgeClass = "status-pending";
+        }
+
+        table.innerHTML += `
+          <tr>
+            <td><input type="checkbox" onclick="selectWithdrawal(${idx}, this)" ${checked}></td>
+            <td>${wid}</td>
+            <td>${wdl.username || wdl.user || ""}</td>
+            <td>$${wdl.amount !== undefined ? Number(wdl.amount).toFixed(2) : "0.00"}</td>
+            <td>${wdl.method || ""}</td>
+            <td>
+              <span class="status-badge ${statusBadgeClass}">
+                ${statusText}
+              </span>
+            </td>
+            <td>${wdl.createdAt ? new Date(wdl.createdAt).toLocaleString() : (wdl.requestedAt ? new Date(wdl.requestedAt).toLocaleString() : "")}</td>
+            <td class="action-icons">
+              ${
+                (statusText.toLowerCase() === "pending" || statusText.toLowerCase() === "reviewing") ? `
+                  <button class="icon-btn" title="Approve" onclick="approveWithdrawal(${idx})"><i class="fa fa-check"></i></button>
+                  <button class="icon-btn" title="Reject" onclick="rejectWithdrawal(${idx})"><i class="fa fa-times"></i></button>
+                ` : ``
+              }
+              <button class="icon-btn" title="Edit" onclick="editWithdrawal(${idx})"><i class="fa fa-edit"></i></button>
+              <button class="icon-btn" title="Delete" onclick="deleteWithdrawal(${idx})"><i class="fa fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById("bulkActions").style.display = selectedWithdrawals.size > 0 ? "block" : "none";
+    }
+
+    // Helper to get id from a withdrawal object
+    function withdrawalId(wdl) {
+      return wdl && (wdl._id || wdl.id || wdl.transactionId || "");
+    }
+
+    // Approve pending withdrawal
+    async function approveWithdrawal(idx) {
+      const wdl = allWithdrawals[idx];
+      const id = withdrawalId(wdl);
+      if (!id) {
+        showToast("Cannot approve: withdrawal id missing.");
+        return;
+      }
+      const res = await fetch(`/admin/withdrawals/${encodeURIComponent(id)}/approve`, {
+        method: 'PATCH',
+        headers: { "x-admin-token": localStorage.getItem('adminToken') }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({message:'Error'}));
+        showToast("Approve failed: " + (err && err.message ? err.message : res.statusText));
+      } else {
+        showToast("Withdrawal approved.");
+      }
+      fetchWithdrawals();
+    }
+
+    // Reject pending withdrawal
+    async function rejectWithdrawal(idx) {
+      const wdl = allWithdrawals[idx];
+      const id = withdrawalId(wdl);
+      if (!id) {
+        showToast("Cannot reject: withdrawal id missing.");
+        return;
+      }
+      const res = await fetch(`/admin/withdrawals/${encodeURIComponent(id)}/reject`, {
+        method: 'PATCH',
+        headers: { "x-admin-token": localStorage.getItem('adminToken') }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({message:'Error'}));
+        showToast("Reject failed: " + (err && err.message ? err.message : res.statusText));
+      } else {
+        showToast("Withdrawal rejected.");
+      }
+      fetchWithdrawals();
+    }
+
+    // Select/deselect withdrawal for bulk actions
+    function selectWithdrawal(idx, checkbox) {
+      if (checkbox.checked) selectedWithdrawals.add(idx);
+      else selectedWithdrawals.delete(idx);
+      document.getElementById("bulkActions").style.display = selectedWithdrawals.size > 0 ? "block" : "none";
+    }
+    function toggleSelectAllWithdrawals(master) {
+      selectedWithdrawals = new Set();
+      if (master.checked) {
+        allWithdrawals.forEach((_, idx) => selectedWithdrawals.add(idx));
+      }
+      renderWithdrawals(allWithdrawals);
+      document.getElementById("selectAllWithdrawals").checked = master.checked;
+    }
+
+    // Search
+    function searchWithdrawals() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      const filtered = allWithdrawals.filter(wdl =>
+        ((wdl.username || wdl.user || "").toLowerCase().includes(query)) ||
+        (wdl.status && wdl.status.toLowerCase().includes(query)) ||
+        (wdl.method && wdl.method.toLowerCase().includes(query))
+      );
+      renderWithdrawals(filtered);
+    }
+
+    // Edit (Approve/Reject) Withdrawal
+    function editWithdrawal(idx) {
+      editingWithdrawalIndex = idx;
+      const wdl = allWithdrawals[idx];
+      document.getElementById("withdrawalModalTitle").textContent = "Update Withdrawal";
+      document.getElementById("modalUser").value = wdl.username || wdl.user || "";
+      document.getElementById("modalAmount").value = wdl.amount;
+      document.getElementById("modalMethod").value = wdl.method || "";
+      document.getElementById("modalStatus").value = wdl.status || "Pending";
+      document.getElementById("modalRequestedAt").value = wdl.createdAt ? new Date(wdl.createdAt).toLocaleString() : (wdl.requestedAt ? new Date(wdl.requestedAt).toLocaleString() : "");
+      document.getElementById("withdrawalModal").style.display = "block";
+    }
+
+    function closeWithdrawalModal() {
+      document.getElementById("withdrawalModal").style.display = "none";
+    }
+
+    document.getElementById("withdrawalForm").onsubmit = async function(e) {
+      e.preventDefault();
+      const status = document.getElementById("modalStatus").value;
+      if (editingWithdrawalIndex !== null) {
+        const wdl = allWithdrawals[editingWithdrawalIndex];
+        const id = withdrawalId(wdl);
+        if (!id) {
+          showToast("Cannot update: withdrawal id missing.");
+          return;
+        }
+        const res = await fetch(`/admin/withdrawals/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ status })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({message:'Error'}));
+          showToast("Update failed: " + (err && err.message ? err.message : res.statusText));
+        } else {
+          showToast("Withdrawal updated!");
+          closeWithdrawalModal();
+        }
+        fetchWithdrawals();
+      }
+    };
+
+    // Delete withdrawal
+    async function deleteWithdrawal(idx) {
+      const wdl = allWithdrawals[idx];
+      const id = withdrawalId(wdl);
+      if (!id) {
+        showToast("Cannot delete: withdrawal id missing.");
+        return;
+      }
+      if (confirm("Are you sure you want to delete this withdrawal request?")) {
+        const res = await fetch(`/admin/withdrawals/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({message:'Error'}));
+          showToast("Delete failed: " + (err && err.message ? err.message : res.statusText));
+        } else {
+          showToast("Withdrawal deleted.");
+        }
+        fetchWithdrawals();
+      }
+    }
+
+    // Bulk actions
+    async function bulkApproveWithdrawals() {
+      for (let idx of Array.from(selectedWithdrawals)) {
+        const wdl = allWithdrawals[idx];
+        const id = withdrawalId(wdl);
+        if (!id) continue;
+        await fetch(`/admin/withdrawals/${encodeURIComponent(id)}/approve`, {
+          method: 'PATCH',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+      }
+      showToast("Selected withdrawals approved.");
+      fetchWithdrawals();
+      selectedWithdrawals.clear();
+    }
+    async function bulkRejectWithdrawals() {
+      for (let idx of Array.from(selectedWithdrawals)) {
+        const wdl = allWithdrawals[idx];
+        const id = withdrawalId(wdl);
+        if (!id) continue;
+        await fetch(`/admin/withdrawals/${encodeURIComponent(id)}/reject`, {
+          method: 'PATCH',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+      }
+      showToast("Selected withdrawals rejected.");
+      fetchWithdrawals();
+      selectedWithdrawals.clear();
+    }
+    async function bulkDeleteWithdrawals() {
+      if (confirm("Are you sure you want to delete selected withdrawals?")) {
+        for (let idx of Array.from(selectedWithdrawals)) {
+          const wdl = allWithdrawals[idx];
+          const id = withdrawalId(wdl);
+          if (!id) continue;
+          await fetch(`/admin/withdrawals/${encodeURIComponent(id)}`, {
+            method: 'DELETE',
+            headers: { "x-admin-token": localStorage.getItem('adminToken') }
+          });
+        }
+        selectedWithdrawals.clear();
+        showToast("Selected withdrawals deleted.");
+        fetchWithdrawals();
+      }
+    }
+
+    // Export withdrawals to CSV
+    function exportWithdrawalsCSV() {
+      const csv = [
+        ["ID", "User", "Amount", "Method", "Status", "Requested At"],
+        ...allWithdrawals.map(wdl => [
+          withdrawalId(wdl), wdl.username || wdl.user || "", wdl.amount, wdl.method, wdl.status, wdl.createdAt ? new Date(wdl.createdAt).toLocaleString() : (wdl.requestedAt ? new Date(wdl.requestedAt).toLocaleString() : "")
+        ])
+      ].map(row => row.map(String).map(s=>`"${s.replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "withdrawals.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Exported to CSV!");
+    }
+
+    // Toast and logout helpers
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    // Modal close on outside click
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+      }
+    }
+
+    // Initial load
+    fetchWithdrawals();
+  </script>
+<script>
+window.addEventListener("message", function(event) {
+  if (event.data && event.data.type === "setDarkMode") {
+    if (event.data.enable) {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+      document.documentElement.classList.remove("dark");
+    }
+  }
+});
+// On load, also check localStorage (for direct navigation)
+if (localStorage.getItem("adminDarkMode") === "true") {
+  document.body.classList.add("dark");
+  document.documentElement.classList.add("dark");
+}
+</script>
+</body>
+</html>

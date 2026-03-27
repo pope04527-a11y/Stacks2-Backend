@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - Tasks Management</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* Pagination controls */
+    .pagination { display:flex; gap:8px; align-items:center; margin-top:12px; }
+    .pagination button { padding:6px 10px; border-radius:6px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+    .pagination button:disabled { opacity:0.5; cursor:not-allowed; }
+    .page-info { font-size:13px; color:#555; }
+    /* Make sure table area scrolls modestly */
+    .table-responsive { max-height: 62vh; overflow:auto; }
+    @media (max-width:600px) {
+      .table-responsive { max-height: 50vh; }
+    }
+  </style>
+</head>
+<body>
+  <script>
+    // Redirect to login if token missing
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>Tasks Management</h2>
+          <input type="text" id="searchInput" placeholder="Search by task name, user, or status..." oninput="searchTasks()" />
+          <button class="add-btn" onclick="showAddTaskModal()"><i class="fa fa-plus"></i> Add Task</button>
+          <button class="export-btn" onclick="exportTasksCSV()"><i class="fa fa-download"></i> Export CSV</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllTasks" onclick="toggleSelectAllTasks(this)"></th>
+                <th>Task ID</th>
+                <th>User</th>
+                <th>Task Name</th>
+                <th>Status</th>
+                <th>Created At</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="tasksTable">
+              <!-- Task rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination controls -->
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+          <div class="pagination" id="paginationControls" style="display:none;">
+            <button id="prevPage" onclick="changePage(currentPage-1)">Prev</button>
+            <div class="page-info" id="pageInfo"></div>
+            <button id="nextPage" onclick="changePage(currentPage+1)">Next</button>
+          </div>
+
+          <div id="bulkActionsWrapper" style="margin-left:auto;">
+            <div class="bulk-actions" id="bulkActions" style="display:none;">
+              <button class="bulk-btn" onclick="bulkCompleteTasks()"><i class="fa fa-check"></i> Mark Complete</button>
+              <button class="bulk-btn" onclick="bulkDeleteTasks()"><i class="fa fa-trash"></i> Delete Selected</button>
+            </div>
+          </div>
+        </div>
+
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Add/Edit Task Modal -->
+  <div class="modal" id="taskModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeTaskModal()">&times;</span>
+      <h2 id="taskModalTitle">Add Task</h2>
+      <form id="taskForm">
+        <input type="text" id="modalUser" placeholder="Assigned User" required />
+        <input type="text" id="modalTaskName" placeholder="Task Name" required />
+        <select id="modalStatus" required>
+          <option value="Pending">Pending</option>
+          <option value="Completed">Completed</option>
+        </select>
+        <button type="submit" class="add-btn">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- TASKS MANAGEMENT WITH PAGINATION ---
+    let selectedTasks = new Set();
+    let editingTaskIndex = null;
+    let allTasks = []; // full array (fallback)
+    let serverSupportsPaging = false;
+    let currentPage = 1;
+    let perPage = 50;
+    let totalPages = 1;
+    let currentViewTasks = []; // tasks currently displayed (for current page/filter)
+
+    // Utility: sort tasks newest-first by completedAt > startedAt > createdAt
+    function sortTasksDesc(arr) {
+      return arr.sort((a, b) => {
+        const getDate = (t) => {
+          const d = t.completedAt || t.startedAt || t.createdAt || t.createdAt;
+          return d ? new Date(d).getTime() : 0;
+        };
+        return getDate(b) - getDate(a);
+      });
+    }
+
+    // Try to request server-side paginated tasks (if backend supports page/limit)
+    async function fetchTasks(page = 1, limit = perPage) {
+      try {
+        // Attempt server paginated request
+        const url = `/admin/tasks?page=${page}&limit=${limit}`;
+        const res = await fetch(url, {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (!res.ok) {
+          // fallback: fetch all tasks and paginate client-side
+          throw new Error('Server paginated request failed; falling back');
+        }
+        const data = await res.json();
+
+        // Heuristic: if server returned an object with items/total, use server paging
+        if (data && Array.isArray(data.items) && typeof data.total === 'number') {
+          serverSupportsPaging = true;
+          const items = sortTasksDesc(data.items);
+          currentViewTasks = items;
+          totalPages = Math.max(1, Math.ceil(data.total / limit));
+          currentPage = page;
+          renderTasks(items);
+          renderPagination();
+          return;
+        }
+
+        // If server returned an array (legacy), treat as full fetch and paginate client-side
+        if (Array.isArray(data)) {
+          serverSupportsPaging = false;
+          allTasks = sortTasksDesc(data);
+          totalPages = Math.max(1, Math.ceil(allTasks.length / perPage));
+          currentPage = 1;
+          renderTasksPage(1);
+          return;
+        }
+
+        // If response is unknown shape, fallback to client fetch of all
+        throw new Error('Unexpected tasks response; falling back to full fetch');
+      } catch (err) {
+        // Fallback: fetch all tasks once and paginate client-side
+        try {
+          const res2 = await fetch('/admin/tasks', {
+            headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+          });
+          if (!res2.ok) throw new Error('Unauthorized');
+          const data2 = await res2.json();
+          if (!Array.isArray(data2)) allTasks = [];
+          else allTasks = sortTasksDesc(data2);
+          totalPages = Math.max(1, Math.ceil(allTasks.length / perPage));
+          currentPage = 1;
+          renderTasksPage(currentPage);
+        } catch (e) {
+          console.error('fetchTasks fallback failed', e);
+          alert("Session expired or unauthorized. Please login again.");
+          logout();
+        }
+      }
+    }
+
+    function renderTasksPage(page) {
+      const start = (page - 1) * perPage;
+      const slice = allTasks.slice(start, start + perPage);
+      currentViewTasks = slice;
+      renderTasks(slice);
+      currentPage = page;
+      totalPages = Math.max(1, Math.ceil(allTasks.length / perPage));
+      renderPagination();
+    }
+
+    function renderPagination() {
+      const controls = document.getElementById('paginationControls');
+      const pageInfo = document.getElementById('pageInfo');
+      const prev = document.getElementById('prevPage');
+      const next = document.getElementById('nextPage');
+
+      // Show pagination only if we have more than one page
+      if (totalPages > 1) {
+        controls.style.display = 'flex';
+        pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+        prev.disabled = currentPage <= 1;
+        next.disabled = currentPage >= totalPages;
+      } else {
+        controls.style.display = 'none';
+      }
+    }
+
+    function changePage(newPage) {
+      if (serverSupportsPaging) {
+        // request server page
+        fetchTasks(newPage, perPage);
+      } else {
+        // client-side pagination
+        if (newPage < 1 || newPage > totalPages) return;
+        renderTasksPage(newPage);
+      }
+    }
+
+    // Render tasks in table
+    function renderTasks(tasks) {
+      const table = document.getElementById("tasksTable");
+      table.innerHTML = "";
+      tasks.forEach((task, idx) => {
+        const globalIndex = ((currentPage - 1) * perPage) + idx;
+        const checked = selectedTasks.has(globalIndex) ? "checked" : "";
+        const taskId = task.taskCode || task.id || "";
+        const user = task.username || task.user || "";
+        const name = (task.product && task.product.name) ? task.product.name : (task.name || "");
+        const status = task.status || "Pending";
+        const createdAt = task.completedAt
+          ? new Date(task.completedAt).toLocaleString()
+          : (task.startedAt ? new Date(task.startedAt).toLocaleString() : (task.createdAt ? new Date(task.createdAt).toLocaleString() : ""));
+        table.innerHTML += `
+          <tr>
+            <td><input type="checkbox" onclick="selectTask(${globalIndex}, this)" ${checked}></td>
+            <td>${taskId}</td>
+            <td>${user}</td>
+            <td>${name}</td>
+            <td>
+              <span class="status-badge ${status === 'Completed' ? 'status-active' : (status === 'Pending' ? 'status-danger' : 'status-suspended')}">
+                ${status}
+              </span>
+            </td>
+            <td>${createdAt}</td>
+            <td class="action-icons">
+              <button class="icon-btn" title="Edit" onclick="editTaskByGlobalIndex(${globalIndex})"><i class="fa fa-edit"></i></button>
+              <button class="icon-btn" title="Mark Complete" onclick="completeTaskByGlobalIndex(${globalIndex})"><i class="fa fa-check"></i></button>
+              <button class="icon-btn" title="Delete" onclick="deleteTaskByGlobalIndex(${globalIndex})"><i class="fa fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById("bulkActions").style.display = selectedTasks.size > 0 ? "block" : "none";
+    }
+
+    // Select/deselect task for bulk actions (global indexing to account for pagination)
+    function selectTask(globalIndex, checkbox) {
+      if (checkbox.checked) selectedTasks.add(globalIndex);
+      else selectedTasks.delete(globalIndex);
+      document.getElementById("bulkActions").style.display = selectedTasks.size > 0 ? "block" : "none";
+    }
+    function toggleSelectAllTasks(master) {
+      selectedTasks = new Set();
+      if (master.checked) {
+        // select visible tasks only (on current view)
+        if (serverSupportsPaging) {
+          // make best-effort: select range on currentPage
+          // We don't have total mapping of global indexes if server supports paging, so store visible indexes as 0..N-1 in a separate set (use mapping)
+          // For simplicity, when serverSupportsPaging, we'll not support select-all across all pages; only select visible shown rows
+          const visibleCount = currentViewTasks.length;
+          const base = (currentPage - 1) * perPage;
+          for (let i = 0; i < visibleCount; i++) selectedTasks.add(base + i);
+        } else {
+          // client-side: select all items
+          for (let i = 0; i < allTasks.length; i++) selectedTasks.add(i);
+        }
+      }
+      // Re-render (so checkboxes reflect selection state)
+      if (serverSupportsPaging) {
+        renderTasks(currentViewTasks);
+      } else {
+        renderTasksPage(currentPage);
+      }
+    }
+
+    // Search uses client-side filter (if server supports it, page will be refreshed)
+    function searchTasks() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      if (query === "") {
+        // reset to current page
+        if (serverSupportsPaging) {
+          fetchTasks(currentPage, perPage);
+        } else {
+          renderTasksPage(1);
+        }
+        return;
+      }
+
+      // Filter client-side from allTasks (if not loaded, fetch first)
+      if (!allTasks.length && !serverSupportsPaging) {
+        fetchTasks();
+        return;
+      }
+
+      // Filter and display first page of matching results
+      const filtered = (serverSupportsPaging ? currentViewTasks : allTasks).filter(task =>
+        ((task.username || task.user || "").toLowerCase().includes(query)) ||
+        ((task.product && task.product.name ? task.product.name : (task.name || "")).toLowerCase().includes(query)) ||
+        ((task.status || "").toLowerCase().includes(query))
+      );
+      // sort newest-first
+      const sorted = sortTasksDesc(filtered.slice());
+      // show results (no pagination for search results)
+      currentViewTasks = sorted;
+      renderTasks(sorted);
+      document.getElementById('paginationControls').style.display = 'none';
+    }
+
+    // Mapping helpers for operations that need original task object when paginated
+    function getTaskByGlobalIndex(globalIndex) {
+      if (!serverSupportsPaging) {
+        return allTasks[globalIndex];
+      } else {
+        // server supports paging; we have currentViewTasks and a base offset
+        const base = (currentPage - 1) * perPage;
+        const visibleIndex = globalIndex - base;
+        return currentViewTasks[visibleIndex];
+      }
+    }
+
+    // Add/Edit Task
+    function showAddTaskModal() {
+      editingTaskIndex = null;
+      document.getElementById("taskModalTitle").textContent = "Add Task";
+      document.getElementById("taskForm").reset();
+      document.getElementById("taskModal").style.display = "block";
+    }
+    function closeTaskModal() {
+      document.getElementById("taskModal").style.display = "none";
+    }
+
+    document.getElementById("taskForm").onsubmit = async function(e) {
+      e.preventDefault();
+      const user = document.getElementById("modalUser").value.trim();
+      const name = document.getElementById("modalTaskName").value.trim();
+      const status = document.getElementById("modalStatus").value;
+
+      if (editingTaskIndex !== null) {
+        // Edit
+        const task = getTaskByGlobalIndex(editingTaskIndex);
+        await fetch(`/admin/tasks/${encodeURIComponent(task.taskCode || task.id)}`, {
+          method: 'PUT',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ user, name, status })
+        });
+        showToast("Task updated!");
+      } else {
+        // Add
+        await fetch('/admin/tasks', {
+          method: 'POST',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ user, name, status })
+        });
+        showToast("Task added!");
+      }
+      closeTaskModal();
+      fetchTasks(currentPage, perPage);
+    };
+
+    function editTaskByGlobalIndex(globalIndex) {
+      editingTaskIndex = globalIndex;
+      const task = getTaskByGlobalIndex(globalIndex);
+      if (!task) return;
+      document.getElementById("taskModalTitle").textContent = "Edit Task";
+      document.getElementById("modalUser").value = task.username || task.user || "";
+      document.getElementById("modalTaskName").value = (task.product && task.product.name) ? task.product.name : (task.name || "");
+      document.getElementById("modalStatus").value = task.status || "Pending";
+      document.getElementById("taskModal").style.display = "block";
+    }
+
+    async function completeTaskByGlobalIndex(globalIndex) {
+      const task = getTaskByGlobalIndex(globalIndex);
+      if (!task) return;
+      await fetch(`/admin/tasks/${encodeURIComponent(task.taskCode || task.id)}/complete`, {
+        method: 'PATCH',
+        headers: { "x-admin-token": localStorage.getItem('adminToken') }
+      });
+      showToast("Task marked as completed.");
+      fetchTasks(currentPage, perPage);
+    }
+
+    async function deleteTaskByGlobalIndex(globalIndex) {
+      const task = getTaskByGlobalIndex(globalIndex);
+      if (!task) return;
+      if (confirm("Are you sure you want to delete this task?")) {
+        await fetch(`/admin/tasks/${encodeURIComponent(task.taskCode || task.id)}`, {
+          method: 'DELETE',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+        showToast("Task deleted.");
+        fetchTasks(currentPage, perPage);
+      }
+    }
+
+    // Admin bulk actions operate on selected global indexes
+    async function bulkCompleteTasks() {
+      for (let globalIndex of Array.from(selectedTasks)) {
+        const task = getTaskByGlobalIndex(globalIndex);
+        if (!task) continue;
+        await fetch(`/admin/tasks/${encodeURIComponent(task.taskCode || task.id)}/complete`, {
+          method: 'PATCH',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+      }
+      showToast("Selected tasks marked as completed.");
+      selectedTasks.clear();
+      fetchTasks(currentPage, perPage);
+    }
+    async function bulkDeleteTasks() {
+      if (!confirm("Are you sure you want to delete selected tasks?")) return;
+      for (let globalIndex of Array.from(selectedTasks)) {
+        const task = getTaskByGlobalIndex(globalIndex);
+        if (!task) continue;
+        await fetch(`/admin/tasks/${encodeURIComponent(task.taskCode || task.id)}`, {
+          method: 'DELETE',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+      }
+      selectedTasks.clear();
+      showToast("Selected tasks deleted.");
+      fetchTasks(currentPage, perPage);
+    }
+
+    // Export tasks to CSV (latest first)
+    function exportTasksCSV() {
+      const source = serverSupportsPaging ? currentViewTasks : allTasks;
+      const arr = source.length ? sortTasksDesc(source.slice()) : [];
+      const csv = [
+        ["Task ID", "User", "Task Name", "Status", "Created At"],
+        ...arr.map(t => [
+          t.taskCode || t.id || "",
+          t.username || t.user || "",
+          (t.product && t.product.name) ? t.product.name : (t.name || ""),
+          t.status || "",
+          t.completedAt ? new Date(t.completedAt).toLocaleString() : (t.startedAt ? new Date(t.startedAt).toLocaleString() : (t.createdAt ? new Date(t.createdAt).toLocaleString() : ""))
+        ])
+      ].map(row => row.map(String).map(s=>`"${s.replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "tasks.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Exported to CSV!");
+    }
+
+    // Toast and logout helpers
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    // Modal close on outside click
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+      }
+    }
+
+    // Initial load: try server-side paging else fetch all
+    fetchTasks(1, perPage);
+  </script>
+<script>
+window.addEventListener("message", function(event) {
+  if (event.data && event.data.type === "setDarkMode") {
+    if (event.data.enable) {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+      document.documentElement.classList.remove("dark");
+    }
+  }
+});
+// On load, also check localStorage (for direct navigation)
+if (localStorage.getItem("adminDarkMode") === "true") {
+  document.body.classList.add("dark");
+  document.documentElement.classList.add("dark");
+}
+</script>
+</body>
+</html>

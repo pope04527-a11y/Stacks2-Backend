@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - Transactions Management</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    /* Constrain table height */
+    .table-responsive { max-height: 70vh; overflow:auto; }
+    .status-badge { padding:4px 8px; border-radius:12px; font-size:12px; }
+  </style>
+</head>
+<body>
+  <script>
+    // Redirect to login if token missing
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>Transactions Management (Admin add-balance history)</h2>
+          <input type="text" id="searchInput" placeholder="Search by username or status..." oninput="searchTransactions()" />
+          <button class="export-btn" onclick="exportTransactionsCSV()"><i class="fa fa-download"></i> Export CSV</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllTransactions" onclick="toggleSelectAllTransactions(this)"></th>
+                <th>Transaction ID</th>
+                <th>User</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="transactionsTable">
+              <!-- Transaction rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div class="bulk-actions" id="bulkActions" style="display:none;">
+          <button class="bulk-btn" onclick="bulkDeleteTransactions()"><i class="fa fa-trash"></i> Delete Selected</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- View/Edit Transaction Modal -->
+  <div class="modal" id="transactionModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeTransactionModal()">&times;</span>
+      <h2 id="transactionModalTitle">View/Edit Transaction</h2>
+      <form id="transactionForm">
+        <input type="text" id="modalUser" placeholder="User" required readonly />
+        <input type="text" id="modalType" placeholder="Type" required readonly />
+        <input type="number" id="modalAmount" placeholder="Amount" step="0.01" required readonly />
+        <select id="modalStatus" required>
+          <option value="Pending">Pending</option>
+          <option value="Completed">Completed</option>
+          <option value="Rejected">Rejected</option>
+        </select>
+        <input type="text" id="modalDate" placeholder="Date" readonly />
+        <button type="submit" class="add-btn">Save Changes</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- TRANSACTIONS MANAGEMENT: only show admin add-balance history ---
+    let selectedTransactions = new Set();
+    let editingTransactionIndex = null;
+    let allTransactions = [];
+
+    function isAdminAddBalance(txn) {
+      // match the admin add-balance transaction created by admin.js: type === "admin_add_balance"
+      if (!txn) return false;
+      const t = (txn.type || "").toString().toLowerCase();
+      return t === 'admin_add_balance' || t.includes('admin_add_balance') || (txn.note && String(txn.note).toLowerCase().includes('admin_add_balance'));
+    }
+
+    async function fetchTransactions() {
+      try {
+        const res = await fetch('/admin/transactions', {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (!res.ok) throw new Error('Unauthorized');
+        const data = await res.json();
+        // data may be { deposits: [], withdrawals: [] } or array. We only want admin-added balances.
+        let merged = [];
+        if (Array.isArray(data)) {
+          merged = data;
+        } else {
+          const deposits = Array.isArray(data.deposits) ? data.deposits : [];
+          const withdrawals = Array.isArray(data.withdrawals) ? data.withdrawals : [];
+          merged = deposits.concat(withdrawals);
+        }
+        // Filter to only admin add-balance transactions
+        const adminAdds = merged.filter(isAdminAddBalance);
+        // Sort newest-first
+        adminAdds.sort((a,b) => {
+          const da = a.createdAt || a.date || a._createdAt || a.createdAt;
+          const db = b.createdAt || b.date || b._createdAt || b.createdAt;
+          return new Date(db).getTime() - new Date(da).getTime();
+        });
+        allTransactions = adminAdds;
+        renderTransactions(allTransactions);
+      } catch (err) {
+        console.error('fetchTransactions error', err);
+        alert("Session expired or unauthorized. Please login again.");
+        logout();
+      }
+    }
+
+    function renderTransactions(transactions) {
+      const table = document.getElementById("transactionsTable");
+      table.innerHTML = "";
+      transactions.forEach((txn, idx) => {
+        const checked = selectedTransactions.has(idx) ? "checked" : "";
+        const dateStr = txn.createdAt ? new Date(txn.createdAt).toLocaleString() : (txn.date ? new Date(txn.date).toLocaleString() : "");
+        const id = txn.id || txn._id || txn.transactionId || "";
+        const user = txn.username || txn.user || txn.user || "";
+        const type = txn.type || "admin_add_balance";
+        const status = txn.status || "Completed";
+        table.innerHTML += `
+          <tr>
+            <td><input type="checkbox" onclick="selectTransaction(${idx}, this)" ${checked}></td>
+            <td>${id}</td>
+            <td>${user}</td>
+            <td>${type}</td>
+            <td>$${txn.amount !== undefined ? Number(txn.amount).toFixed(2) : "0.00"}</td>
+            <td>
+              <span class="status-badge ${status === 'Completed' ? 'status-active' : (status === 'Rejected' ? 'status-suspended' : 'status-pending')}">
+                ${status}
+              </span>
+            </td>
+            <td>${dateStr}</td>
+            <td class="action-icons">
+              <button class="icon-btn" title="View/Edit" onclick="editTransaction(${idx})"><i class="fa fa-edit"></i></button>
+              <button class="icon-btn" title="Delete" onclick="deleteTransaction(${idx})"><i class="fa fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById("bulkActions").style.display = selectedTransactions.size > 0 ? "block" : "none";
+    }
+
+    function selectTransaction(idx, checkbox) {
+      if (checkbox.checked) selectedTransactions.add(idx);
+      else selectedTransactions.delete(idx);
+      document.getElementById("bulkActions").style.display = selectedTransactions.size > 0 ? "block" : "none";
+    }
+
+    function toggleSelectAllTransactions(master) {
+      selectedTransactions = new Set();
+      if (master.checked) {
+        allTransactions.forEach((_, idx) => selectedTransactions.add(idx));
+      }
+      renderTransactions(allTransactions);
+      document.getElementById("selectAllTransactions").checked = master.checked;
+    }
+
+    function searchTransactions() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      const filtered = allTransactions.filter(txn =>
+        ((txn.username || txn.user || "").toLowerCase().includes(query)) ||
+        (txn.status && txn.status.toLowerCase().includes(query))
+      );
+      renderTransactions(filtered);
+    }
+
+    function editTransaction(idx) {
+      editingTransactionIndex = idx;
+      const txn = allTransactions[idx];
+      document.getElementById("transactionModalTitle").textContent = "Edit Transaction";
+      document.getElementById("modalUser").value = txn.username || txn.user || "";
+      document.getElementById("modalType").value = txn.type || "admin_add_balance";
+      document.getElementById("modalAmount").value = txn.amount;
+      document.getElementById("modalStatus").value = txn.status || "Completed";
+      document.getElementById("modalDate").value = txn.createdAt ? new Date(txn.createdAt).toLocaleString() : (txn.date ? new Date(txn.date).toLocaleString() : "");
+      document.getElementById("transactionModal").style.display = "block";
+    }
+
+    function closeTransactionModal() {
+      document.getElementById("transactionModal").style.display = "none";
+    }
+
+    document.getElementById("transactionForm").onsubmit = async function(e) {
+      e.preventDefault();
+      const status = document.getElementById("modalStatus").value;
+      if (editingTransactionIndex !== null) {
+        const txn = allTransactions[editingTransactionIndex];
+        const id = txn.id || txn._id || txn.transactionId || "";
+        if (!id) {
+          showToast("Transaction id missing.");
+          return;
+        }
+        const res = await fetch(`/admin/transactions/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ status })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(()=>({message:'Error'}));
+          showToast("Update failed: " + (err && err.message ? err.message : res.statusText));
+        } else {
+          showToast("Transaction updated!");
+          closeTransactionModal();
+          fetchTransactions();
+        }
+      }
+    };
+
+    async function deleteTransaction(idx) {
+      const txn = allTransactions[idx];
+      const id = txn.id || txn._id || txn.transactionId || "";
+      if (!id) {
+        showToast("Cannot delete: transaction id missing.");
+        return;
+      }
+      if (!confirm("Are you sure you want to delete this transaction?")) return;
+      const res = await fetch(`/admin/transactions/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+        headers: { "x-admin-token": localStorage.getItem('adminToken') }
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(()=>({message:'Error'}));
+        showToast("Delete failed: " + (err && err.message ? err.message : res.statusText));
+      } else {
+        showToast("Transaction deleted.");
+        fetchTransactions();
+      }
+    }
+
+    async function bulkDeleteTransactions() {
+      if (!confirm("Are you sure you want to delete selected transactions?")) return;
+      for (let idx of Array.from(selectedTransactions)) {
+        const txn = allTransactions[idx];
+        const id = txn.id || txn._id || txn.transactionId || "";
+        if (!id) continue;
+        await fetch(`/admin/transactions/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+      }
+      selectedTransactions.clear();
+      showToast("Selected transactions deleted.");
+      fetchTransactions();
+    }
+
+    function exportTransactionsCSV() {
+      const csv = [
+        ["ID", "User", "Type", "Amount", "Status", "Date"],
+        ...allTransactions.map(t => [
+          t.id || t._id || "",
+          t.username || t.user || "",
+          t.type || "",
+          t.amount !== undefined ? Number(t.amount).toFixed(2) : "",
+          t.status || "",
+          t.createdAt ? new Date(t.createdAt).toLocaleString() : (t.date ? new Date(t.date).toLocaleString() : "")
+        ])
+      ].map(row => row.map(String).map(s=>`"${s.replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "admin_add_balances.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Exported to CSV!");
+    }
+
+    // Toast and logout helpers
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    // Modal close on outside click
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+      }
+    }
+
+    // Initial load
+    fetchTransactions();
+  </script>
+<script>
+window.addEventListener("message", function(event) {
+  if (event.data && event.data.type === "setDarkMode") {
+    if (event.data.enable) {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+      document.documentElement.classList.remove("dark");
+    }
+  }
+});
+// On load, also check localStorage (for direct navigation)
+if (localStorage.getItem("adminDarkMode") === "true") {
+  document.body.classList.add("dark");
+  document.documentElement.classList.add("dark");
+}
+</script>
+</body>
+</html>

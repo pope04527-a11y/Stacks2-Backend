@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - System Settings</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    .settings-form {
+      max-width: 420px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 2rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+    }
+    .settings-form label {
+      font-weight: 500;
+      margin-top: 12px;
+      margin-bottom: 4px;
+      display: block;
+    }
+    .settings-form input, .settings-form select, .settings-form textarea {
+      width: 100%;
+      padding: 8px;
+      border-radius: 4px;
+      border: 1px solid #bbb;
+      margin-bottom: 16px;
+    }
+    .settings-form .save-btn {
+      width: 100%;
+    }
+    .settings-group {
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #eee;
+    }
+    .settings-warning {
+      color: #e86128;
+      font-size: 0.96em;
+      margin-bottom: 1rem;
+    }
+    #toast.toast {
+      visibility: hidden;
+      min-width: 180px;
+      background-color: #1767c6;
+      color: #fff;
+      text-align: center;
+      border-radius: 7px;
+      padding: 10px;
+      position: fixed;
+      z-index: 9999;
+      left: 50%;
+      bottom: 36px;
+      font-size: 15px;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 0.2s, visibility 0.2s;
+    }
+    #toast.show {
+      visibility: visible;
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <script>
+    // Basic gate: require an admin token in localStorage before allowing use of this page.
+    // Admin routes expect header name 'x-admin-token' (lowercase will be normalized by browsers/servers).
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>System Settings</h2>
+        </div>
+
+        <div id="serverMessage" style="margin-bottom:10px;"></div>
+
+        <form id="settingsForm" class="settings-form" autocomplete="off">
+
+          <div class="settings-warning">
+            <i class="fa fa-exclamation-triangle"></i>
+            Changes here affect all users and the platform. Proceed with caution!
+          </div>
+
+          <div class="settings-group">
+            <label for="siteName">Site Name</label>
+            <input type="text" id="siteName" name="siteName" placeholder="Platform Name" required />
+
+            <label for="currency">Currency</label>
+            <input type="text" id="currency" name="currency" placeholder="USD, EUR, etc." required maxlength="5" />
+
+            <label for="defaultVip">Default VIP Level</label>
+            <input type="number" id="defaultVip" name="defaultVip" min="1" max="10" step="1" required />
+
+            <label for="inviteBonus">Invite Bonus</label>
+            <input type="number" id="inviteBonus" name="inviteBonus" min="0" step="0.01" placeholder="e.g. 5.00" />
+
+            <label for="telegramGroup">Telegram Group Link</label>
+            <input type="text" id="telegramGroup" name="telegramGroup" placeholder="https://t.me/group" />
+          </div>
+
+          <div class="settings-group">
+            <label for="homepageNotice">Homepage Notice (HTML allowed)</label>
+            <textarea id="homepageNotice" name="homepageNotice" rows="2"></textarea>
+
+            <label for="depositInstructions">Deposit Instructions</label>
+            <textarea id="depositInstructions" name="depositInstructions" rows="2"></textarea>
+
+            <label for="withdrawInstructions">Withdraw Instructions</label>
+            <textarea id="withdrawInstructions" name="withdrawInstructions" rows="2"></textarea>
+          </div>
+
+          <div class="settings-group">
+            <label for="minWithdraw">Minimum Withdrawal ($)</label>
+            <input type="number" id="minWithdraw" name="minWithdraw" step="0.01" min="0" required />
+
+            <label for="maxWithdraw">Maximum Withdrawal ($)</label>
+            <input type="number" id="maxWithdraw" name="maxWithdraw" step="0.01" min="0" required />
+
+            <label for="withdrawFeePercent">Withdrawal Fee (%)</label>
+            <input type="number" id="withdrawFeePercent" name="withdrawFeePercent" step="0.01" min="0" max="100" required />
+
+            <label for="minDeposit">Minimum Deposit ($)</label>
+            <input type="number" id="minDeposit" name="minDeposit" step="0.01" min="0" />
+
+            <label for="maxDeposit">Maximum Deposit ($)</label>
+            <input type="number" id="maxDeposit" name="maxDeposit" step="0.01" min="0" />
+
+            <label for="dailyTaskSet">Daily Task Set Size</label>
+            <input type="number" id="dailyTaskSet" name="dailyTaskSet" min="0" step="1" />
+          </div>
+
+          <div class="settings-group">
+            <label>
+              <input type="checkbox" id="maintenance" name="maintenance" />
+              Enable Maintenance (Legacy)
+            </label>
+            <label>
+              <input type="checkbox" id="maintenanceMode" name="maintenanceMode" />
+              Enable Maintenance Mode
+            </label>
+          </div>
+
+          <div class="settings-group">
+            <label for="whatsappLink">WhatsApp Link</label>
+            <input type="text" id="whatsappLink" name="whatsappLink" placeholder="https://wa.me/..." />
+
+            <label for="telegramLink">Telegram Link</label>
+            <input type="text" id="telegramLink" name="telegramLink" placeholder="https://t.me/..." />
+          </div>
+
+          <div class="settings-group">
+            <label>
+              <input type="checkbox" id="activityLockEnabled" name="activityLockEnabled" />
+              Lock All User Activities
+            </label>
+
+            <label for="lockedUsers">Locked Users (comma separated usernames)</label>
+            <input type="text" id="lockedUsers" name="lockedUsers" placeholder="user1,user2" />
+
+            <div style="color:#d33;font-size:0.95em;">
+              If enabled, all user actions are blocked. You can also lock specific users only.
+            </div>
+          </div>
+
+          <div class="settings-group">
+            <h3 style="margin-bottom:10px;">Platform Closing Controls</h3>
+
+            <label>
+              <input type="checkbox" id="platformClosed" />
+              Close Platform (Block Tasks & Withdrawals)
+            </label>
+
+            <label for="autoOpenTime">Auto Open Time (UK Time)</label>
+            <input type="time" id="autoOpenTime" />
+
+            <label for="allowList">Allow List Usernames (comma separated)</label>
+            <input type="text" id="allowList" placeholder="user1,user2" />
+          </div>
+
+          <button type="submit" class="save-btn add-btn">
+            <i class="fa fa-save"></i> Save Settings
+          </button>
+
+        </form>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <div id="lastAction" style="margin: 1rem auto; max-width: 420px; text-align: center;"></div>
+
+  <!-- Load admin-served settings script so the page uses the same admin auth and endpoints.
+       The admin route should serve a JS file at /admin/settings.js that implements
+       the fetch/load/save logic and uses the 'x-admin-token' header. -->
+  <script src="/admin/settings.js"></script>
+
+  <script>
+    window.addEventListener("message", function(event) {
+      if (event.data && event.data.type === "setDarkMode") {
+        if (event.data.enable) {
+          document.body.classList.add("dark");
+          document.documentElement.classList.add("dark");
+        } else {
+          document.body.classList.remove("dark");
+          document.documentElement.classList.remove("dark");
+        }
+      }
+    });
+
+    if (localStorage.getItem("adminDarkMode") === "true") {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    }
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - Products Management</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <script>
+    // Redirect to login if token missing
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>Products Management</h2>
+          <input type="text" id="searchInput" placeholder="Search by product name..." oninput="searchProducts()" />
+          <button class="add-btn" onclick="showAddProductModal()"><i class="fa fa-plus"></i> Add Product</button>
+          <button class="export-btn" onclick="exportProductsCSV()"><i class="fa fa-download"></i> Export CSV</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th><input type="checkbox" id="selectAllProducts" onclick="toggleSelectAllProducts(this)"></th>
+                <th>Product ID</th>
+                <th>Name</th>
+                <th>Description</th>
+                <th>Price</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="productsTable">
+              <!-- Product rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div class="bulk-actions" id="bulkActions" style="display:none;">
+          <button class="bulk-btn" onclick="bulkDisableProducts()"><i class="fa fa-ban"></i> Disable Selected</button>
+          <button class="bulk-btn" onclick="bulkDeleteProducts()"><i class="fa fa-trash"></i> Delete Selected</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <!-- Add/Edit Product Modal -->
+  <div class="modal" id="productModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeProductModal()">&times;</span>
+      <h2 id="productModalTitle">Add Product</h2>
+      <form id="productForm">
+        <input type="text" id="modalProductName" placeholder="Product Name" required />
+        <textarea id="modalProductDesc" placeholder="Description" required></textarea>
+        <input type="number" id="modalProductPrice" placeholder="Price" min="0" step="0.01" required />
+        <button type="submit" class="add-btn">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // --- PRODUCTS MANAGEMENT WITH RESTful API ---
+    let selectedProducts = new Set();
+    let editingProductIndex = null;
+    let allProducts = [];
+
+    // Fetch all products from API
+    async function fetchProducts() {
+      try {
+        const res = await fetch('/admin/products', {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (!res.ok) throw new Error('Unauthorized');
+        allProducts = await res.json();
+        renderProducts(allProducts);
+      } catch (err) {
+        alert("Session expired or unauthorized. Please login again.");
+        logout();
+      }
+    }
+
+    // Render products in table
+    function renderProducts(products) {
+      const table = document.getElementById("productsTable");
+      table.innerHTML = "";
+      products.forEach((product, idx) => {
+        const checked = selectedProducts.has(idx) ? "checked" : "";
+        table.innerHTML += `
+          <tr>
+            <td><input type="checkbox" onclick="selectProduct(${idx}, this)" ${checked}></td>
+            <td>${product.id || ""}</td>
+            <td>${product.name}</td>
+            <td>${product.description}</td>
+            <td>$${product.price !== undefined ? Number(product.price).toFixed(2) : "0.00"}</td>
+            <td>
+              <span class="status-badge ${product.status === 'Active' ? 'status-active' : 'status-suspended'}">
+                ${product.status || "Active"}
+              </span>
+            </td>
+            <td class="action-icons">
+              <button class="icon-btn" title="Edit" onclick="editProduct(${idx})"><i class="fa fa-edit"></i></button>
+              <button class="icon-btn" title="Disable" onclick="disableProduct(${idx})"><i class="fa fa-ban"></i></button>
+              <button class="icon-btn" title="Delete" onclick="deleteProduct(${idx})"><i class="fa fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById("bulkActions").style.display = selectedProducts.size > 0 ? "block" : "none";
+    }
+
+    // Select/deselect product for bulk actions
+    function selectProduct(idx, checkbox) {
+      if (checkbox.checked) selectedProducts.add(idx);
+      else selectedProducts.delete(idx);
+      document.getElementById("bulkActions").style.display = selectedProducts.size > 0 ? "block" : "none";
+    }
+    function toggleSelectAllProducts(master) {
+      selectedProducts = new Set();
+      if (master.checked) {
+        allProducts.forEach((_, idx) => selectedProducts.add(idx));
+      }
+      renderProducts(allProducts);
+      document.getElementById("selectAllProducts").checked = master.checked;
+    }
+
+    // Search
+    function searchProducts() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      const filtered = allProducts.filter(product =>
+        product.name.toLowerCase().includes(query) ||
+        product.description.toLowerCase().includes(query)
+      );
+      renderProducts(filtered);
+    }
+
+    // Add/Edit Product
+    function showAddProductModal() {
+      editingProductIndex = null;
+      document.getElementById("productModalTitle").textContent = "Add Product";
+      document.getElementById("productForm").reset();
+      document.getElementById("productModal").style.display = "block";
+    }
+    function closeProductModal() {
+      document.getElementById("productModal").style.display = "none";
+    }
+
+    document.getElementById("productForm").onsubmit = async function(e) {
+      e.preventDefault();
+      const name = document.getElementById("modalProductName").value.trim();
+      const description = document.getElementById("modalProductDesc").value.trim();
+      const price = Number(document.getElementById("modalProductPrice").value);
+
+      if (editingProductIndex !== null) {
+        // Edit
+        const product = allProducts[editingProductIndex];
+        await fetch(`/admin/products/${encodeURIComponent(product.id)}`, {
+          method: 'PUT',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ name, description, price })
+        });
+        showToast("Product updated!");
+      } else {
+        // Add
+        const res = await fetch('/admin/products', {
+          method: 'POST',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": localStorage.getItem('adminToken')
+          },
+          body: JSON.stringify({ name, description, price })
+        });
+        if (res.status === 409) {
+          showToast("Product already exists!");
+          return;
+        }
+        showToast("Product added!");
+      }
+      closeProductModal();
+      fetchProducts();
+    };
+
+    function editProduct(idx) {
+      editingProductIndex = idx;
+      const product = allProducts[idx];
+      document.getElementById("productModalTitle").textContent = "Edit Product";
+      document.getElementById("modalProductName").value = product.name;
+      document.getElementById("modalProductDesc").value = product.description;
+      document.getElementById("modalProductPrice").value = product.price;
+      document.getElementById("productModal").style.display = "block";
+    }
+
+    // Disable (toggle status)
+    async function disableProduct(idx) {
+      const product = allProducts[idx];
+      await fetch(`/admin/products/${encodeURIComponent(product.id)}/disable`, {
+        method: 'PATCH',
+        headers: { "x-admin-token": localStorage.getItem('adminToken') }
+      });
+      showToast(product.status === 'Suspended' ? "Product enabled." : "Product disabled.");
+      fetchProducts();
+    }
+
+    // Delete product
+    async function deleteProduct(idx) {
+      const product = allProducts[idx];
+      if (confirm("Are you sure you want to delete this product?")) {
+        await fetch(`/admin/products/${encodeURIComponent(product.id)}`, {
+          method: 'DELETE',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+        showToast("Product deleted.");
+        fetchProducts();
+      }
+    }
+
+    // Bulk actions
+    async function bulkDisableProducts() {
+      for (let idx of selectedProducts) {
+        const product = allProducts[idx];
+        await fetch(`/admin/products/${encodeURIComponent(product.id)}/disable`, {
+          method: 'PATCH',
+          headers: { "x-admin-token": localStorage.getItem('adminToken') }
+        });
+      }
+      showToast("Selected products disabled.");
+      fetchProducts();
+      selectedProducts.clear();
+    }
+    async function bulkDeleteProducts() {
+      if (confirm("Are you sure you want to delete selected products?")) {
+        for (let idx of selectedProducts) {
+          const product = allProducts[idx];
+          await fetch(`/admin/products/${encodeURIComponent(product.id)}`, {
+            method: 'DELETE',
+            headers: { "x-admin-token": localStorage.getItem('adminToken') }
+          });
+        }
+        selectedProducts.clear();
+        showToast("Selected products deleted.");
+        fetchProducts();
+      }
+    }
+
+    // Export products to CSV
+    function exportProductsCSV() {
+      const csv = [
+        ["ID", "Name", "Description", "Price", "Status"],
+        ...allProducts.map(p => [p.id, p.name, p.description, p.price, p.status])
+      ].map(row => row.map(String).map(s=>`"${s.replace(/"/g,'""')}"`).join(",")).join("\n");
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "products.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast("Exported to CSV!");
+    }
+
+    // Toast and logout helpers
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    // Modal close on outside click
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+      }
+    }
+
+    // Initial load
+    fetchProducts();
+  </script>
+<script>
+window.addEventListener("message", function(event) {
+  if (event.data && event.data.type === "setDarkMode") {
+    if (event.data.enable) {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+      document.documentElement.classList.remove("dark");
+    }
+  }
+});
+// On load, also check localStorage (for direct navigation)
+if (localStorage.getItem("adminDarkMode") === "true") {
+  document.body.classList.add("dark");
+  document.documentElement.classList.add("dark");
+}
+</script>
+</body>
+</html>

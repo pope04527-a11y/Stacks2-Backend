@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - User Activity & Logs</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+  <script>
+    // Redirect to login if token missing
+    const token = localStorage.getItem("adminToken");
+    if (!token) {
+      alert("Access denied. Please login.");
+      window.location.href = "/admin-panel/login.html";
+    }
+  </script>
+
+  <div class="main-content" id="mainContent">
+    <main class="dashboard-container">
+      <section class="admin-section">
+        <div class="section-header">
+          <h2>User Activity & Logs</h2>
+          <input type="text" id="searchInput" placeholder="Search by user, action, or details..." oninput="searchLogs()" />
+          <button class="export-btn" onclick="exportLogsCSV()"><i class="fa fa-download"></i> Export CSV</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Timestamp</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="logsTable">
+              <!-- Log rows injected dynamically -->
+            </tbody>
+          </table>
+        </div>
+        <div style="margin-top:1rem;display:flex;gap:0.5rem;">
+          <button class="add-btn" onclick="refreshLogs()"><i class="fa fa-refresh"></i> Refresh</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="toast"></div>
+
+  <script>
+    let allLogs = [];
+
+    // Fetch all logs from API
+    async function fetchLogs() {
+      try {
+        const res = await fetch('/admin/export-logs-csv', {
+          headers: { 'x-admin-token': localStorage.getItem('adminToken') }
+        });
+        if (res.status === 404) {
+          allLogs = [];
+          renderLogs([]);
+          return;
+        }
+        const csv = await res.text();
+        allLogs = parseCsvToObjects(csv);
+        renderLogs(allLogs);
+      } catch (err) {
+        alert("Session expired or unauthorized. Please login again.");
+        logout();
+      }
+    }
+
+    // Parse CSV to array of objects
+    function parseCsvToObjects(csv) {
+      const lines = csv.split('\n').filter(l=>l.trim().length);
+      if (lines.length < 2) return [];
+      const headers = lines[0].replace(/\r/g, '').split(',');
+      return lines.slice(1).map(line => {
+        // Split only on commas not inside quotes
+        let parts = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          let char = line[i];
+          if (char === '"') inQuotes = !inQuotes;
+          else if (char === ',' && !inQuotes) { parts.push(current.replace(/^"|"$/g,'')); current = ''; }
+          else current += char;
+        }
+        parts.push(current.replace(/^"|"$/g,''));
+        let obj = {};
+        headers.forEach((h, idx) => obj[h] = parts[idx]);
+        return obj;
+      });
+    }
+
+    // Render logs in table
+    function renderLogs(logs) {
+      const table = document.getElementById("logsTable");
+      table.innerHTML = "";
+      logs.forEach((log, idx) => {
+        table.innerHTML += `
+          <tr>
+            <td>${idx + 1}</td>
+            <td>${log.timestamp ? new Date(log.timestamp).toLocaleString() : ""}</td>
+            <td>${log.username || log.user || ""}</td>
+            <td>${log.action || ""}</td>
+            <td>${formatDetails(log)}</td>
+          </tr>
+        `;
+      });
+    }
+
+    function formatDetails(log) {
+      // Show combo, transaction, etc. details as JSON if available
+      let details = '';
+      if (log.combo) details += 'Combo: ' + (typeof log.combo === 'string' ? log.combo : JSON.stringify(log.combo));
+      if (log.transaction) details += ' Transaction: ' + (typeof log.transaction === 'string' ? log.transaction : JSON.stringify(log.transaction));
+      if (log.details) details += ' Details: ' + log.details;
+      if (!details && log.message) details = log.message;
+      return details || "-";
+    }
+
+    // Search
+    function searchLogs() {
+      const query = document.getElementById("searchInput").value.toLowerCase();
+      const filtered = allLogs.filter(log =>
+        (log.username && log.username.toLowerCase().includes(query)) ||
+        (log.user && log.user.toLowerCase().includes(query)) ||
+        (log.action && log.action.toLowerCase().includes(query)) ||
+        (log.details && log.details.toLowerCase().includes(query)) ||
+        (log.message && log.message.toLowerCase().includes(query)) ||
+        (JSON.stringify(log.combo || "").toLowerCase().includes(query)) ||
+        (JSON.stringify(log.transaction || "").toLowerCase().includes(query))
+      );
+      renderLogs(filtered);
+    }
+
+    // Export logs to CSV (again)
+    function exportLogsCSV() {
+      window.open('/admin/export-logs-csv', '_blank');
+      showToast("Logs exported!");
+    }
+
+    // Refresh
+    function refreshLogs() {
+      fetchLogs();
+      showToast("Logs refreshed!");
+    }
+
+    // Toast and logout helpers
+    function showToast(msg) {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 3000);
+    }
+    function logout() {
+      localStorage.removeItem("adminToken");
+      window.location.href = "/admin-panel/login.html";
+    }
+
+    // Initial load
+    fetchLogs();
+  </script>
+<script>
+window.addEventListener("message", function(event) {
+  if (event.data && event.data.type === "setDarkMode") {
+    if (event.data.enable) {
+      document.body.classList.add("dark");
+      document.documentElement.classList.add("dark");
+    } else {
+      document.body.classList.remove("dark");
+      document.documentElement.classList.remove("dark");
+    }
+  }
+});
+// On load, also check localStorage (for direct navigation)
+if (localStorage.getItem("adminDarkMode") === "true") {
+  document.body.classList.add("dark");
+  document.documentElement.classList.add("dark");
+}
+</script>
+</body>
+</html>

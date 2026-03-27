@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin - User Manager</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: sans-serif; }
+    .user-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    .user-table th, .user-table td { border: 1px solid #ddd; padding: 6px 10px; font-size: 13px; }
+    .user-table th { background: #f5f5f5; }
+    .action-btn { margin: 0 2px; padding: 2px 7px; font-size: 12px; cursor: pointer; }
+    .action-btn.suspend { background: #ffebee; color: #d32f2f; }
+    .action-btn.activate { background: #e8f5e9; color: #388e3c; }
+    .action-btn.edit { background: #e3f2fd; color: #1976d2; }
+    .action-btn.reset { background: #fffde7; color: #fbc02d; }
+    .action-btn.vip { background: #ede7f6; color: #6a1b9a; }
+    .action-btn.balance { background: #f3e5f5; color: #7b1fa2; }
+    .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .modal { display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.24); z-index: 999; }
+    .modal-content { background: #fff; margin: 64px auto; padding: 20px; border-radius: 6px; width: 90%; max-width: 520px; box-shadow: 0 1px 10px #aaa; position: relative; }
+    .modal .close { position: absolute; right: 16px; top: 12px; font-size: 22px; cursor: pointer;}
+    .form-row { margin-bottom: 7px; }
+    .form-row label { display: block; font-weight: 500; margin-bottom: 2px; }
+    .form-row input, .form-row select { width: 100%; padding: 5px; }
+    .toast { position: fixed; top: 16px; right: 16px; background: #1976d2; color: #fff; padding: 10px 18px; border-radius: 6px; z-index: 9999; display: none; }
+    .toast.show { display: block; }
+    #topControls { display:flex; gap:12px; align-items:center; margin-bottom:12px; }
+    #addUserBtn { padding:6px 10px; border-radius:6px; background:#0ea5a0; color:#fff; border:none; cursor:pointer; }
+  </style>
+</head>
+<body>
+  <h2>User Manager</h2>
+
+  <div id="topControls">
+    <button id="addUserBtn">Add User</button>
+    <input type="text" id="searchInput" placeholder="Search by username or phone..." oninput="renderUsers()" style="width:240px;" />
+  </div>
+
+  <table class="user-table">
+    <thead>
+      <tr>
+        <th>Username</th>
+        <th>Phone</th>
+        <th>VIP</th>
+        <th>Balance</th>
+        <th>Status</th>
+        <th>Invite Code</th>
+        <th>ReferredBy</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="usersTable"></tbody>
+  </table>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- Create User Modal -->
+  <div class="modal" id="createUserModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeCreateUserModal()">&times;</span>
+      <h3>Create Training / User Account</h3>
+      <form id="createUserForm" autocomplete="off">
+        <div class="form-row">
+          <label>Username *</label>
+          <input type="text" id="createUsername" required />
+        </div>
+        <div class="form-row">
+          <label>Phone *</label>
+          <input type="text" id="createPhone" required />
+        </div>
+        <div class="form-row">
+          <label>Login Password *</label>
+          <input type="password" id="createLoginPassword" required />
+        </div>
+        <div class="form-row">
+          <label>Withdraw Password *</label>
+          <input type="password" id="createWithdrawPassword" required />
+        </div>
+        <div class="form-row">
+          <label>Invite Code (optional)</label>
+          <input type="text" id="createInviteCode" placeholder="leave empty to auto-generate" />
+        </div>
+        <div class="form-row">
+          <label>Link to Inviter (referredBy)</label>
+          <input type="text" id="createReferredBy" placeholder="client invite code (the inviter)" />
+        </div>
+        <div class="form-row">
+          <label>VIP Level</label>
+          <select id="createVipLevel">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>Balance</label>
+          <input type="number" id="createBalance" step="0.01" value="0" />
+        </div>
+
+        <div style="display:flex; gap:8px;">
+          <button id="createSaveBtn" class="action-btn edit" type="submit">Create & Link</button>
+          <button class="action-btn" type="button" onclick="closeCreateUserModal()">Cancel</button>
+        </div>
+
+        <div id="createMsg" style="margin-top:8px;color:#444;"></div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Edit User Modal (extended with registration fields) -->
+  <div class="modal" id="editUserModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeEditUserModal()">&times;</span>
+      <h3>Edit user: <span id="editUsername"></span></h3>
+      <form id="editUserForm" autocomplete="off">
+        <div class="form-row">
+          <label>Phone</label>
+          <input type="text" id="editPhone" />
+        </div>
+        <div class="form-row">
+          <label>VIP Level</label>
+          <input type="number" id="editVip" min="1" max="10"/>
+        </div>
+        <div class="form-row">
+          <label>Balance</label>
+          <input type="number" id="editBalance" min="0" step="0.01"/>
+        </div>
+        <div class="form-row">
+          <label>Status</label>
+          <select id="editStatus">
+            <option>Active</option>
+            <option>Suspended</option>
+          </select>
+        </div>
+
+        <hr>
+
+        <div class="form-row">
+          <label>Login Password</label>
+          <input type="password" id="editLoginPassword" placeholder="leave blank to keep current" />
+        </div>
+        <div class="form-row">
+          <label>Withdraw Password</label>
+          <input type="password" id="editWithdrawPassword" placeholder="leave blank to keep current" />
+        </div>
+        <div class="form-row">
+          <label>Invite Code</label>
+          <input type="text" id="editInviteCode" placeholder="user's invite code" />
+        </div>
+        <div class="form-row">
+          <label>Referred By (inviter invite code)</label>
+          <input type="text" id="editReferredBy" placeholder="inviter invite code" />
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:8px;">
+          <button type="submit" class="action-btn edit">Save Changes</button>
+          <button type="button" class="action-btn" onclick="closeEditUserModal()">Cancel</button>
+        </div>
+      </form>
+
+      <hr>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+        <button class="action-btn reset" onclick="showResetPasswordModal()">Reset Password</button>
+        <button class="action-btn balance" onclick="showAddRemoveBalanceModal()">Add/Remove Balance</button>
+        <button class="action-btn vip" onclick="upgradeVip()">Upgrade VIP</button>
+        <button class="action-btn vip" onclick="downgradeVip()">Downgrade VIP</button>
+        <button class="action-btn reset" onclick="resetUserBalance()">Reset Balance</button>
+        <button class="action-btn suspend" onclick="setStatus('Suspended')">Suspend</button>
+        <button class="action-btn activate" onclick="setStatus('Active')">Activate</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reset Password Modal -->
+  <div class="modal" id="resetPasswordModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeResetPasswordModal()">&times;</span>
+      <h3>Reset Password for <span id="resetUsername"></span></h3>
+      <input type="password" id="newPasswordInput" placeholder="New password" style="width:100%;margin-bottom:8px;">
+      <button class="action-btn reset" onclick="resetPassword()">Set Password</button>
+    </div>
+  </div>
+
+  <!-- Add/Remove Balance Modal -->
+  <div class="modal" id="balanceModal">
+    <div class="modal-content">
+      <span class="close" onclick="closeBalanceModal()">&times;</span>
+      <h3>Balance Adjustment for <span id="balanceUsername"></span></h3>
+      <input type="number" id="balanceAmountInput" placeholder="Amount" style="width:100%;margin-bottom:8px;">
+      <button class="action-btn balance" onclick="addBalance()">Add</button>
+      <button class="action-btn balance" onclick="removeBalance()">Remove</button>
+    </div>
+  </div>
+
+  <script>
+    let usersRaw = [];
+    let currentEditUser = null;
+
+    function showToast(msg, color='#1976d2') {
+      const toast = document.getElementById("toast");
+      toast.textContent = msg;
+      toast.style.background = color;
+      toast.className = "toast show";
+      setTimeout(() => { toast.className = "toast"; }, 2500);
+    }
+
+    async function fetchUsers() {
+      const token = localStorage.getItem('adminToken');
+      const res = await fetch('/admin/users', {
+        headers: { 'x-admin-token': token || '' }
+      });
+      // backend returns array or error; if unauthorized, res.json may be { success:false }
+      try {
+        const data = await res.json();
+        usersRaw = Array.isArray(data) ? data : (data.users || []);
+      } catch (e) {
+        usersRaw = [];
+      }
+      renderUsers();
+    }
+
+    function renderUsers() {
+      const term = document.getElementById('searchInput').value.trim().toLowerCase();
+      const table = document.getElementById('usersTable');
+      table.innerHTML = "";
+      (usersRaw || []).filter(u =>
+        (!term) ||
+        (u.username && u.username.toLowerCase().includes(term)) ||
+        (u.phone && u.phone.toLowerCase().includes(term))
+      ).forEach(u => {
+        table.innerHTML += `
+          <tr>
+            <td>${u.username}</td>
+            <td>${u.phone ?? ""}</td>
+            <td>${u.vipLevel ?? 1}</td>
+            <td>£${(typeof u.balance === 'number' ? u.balance.toFixed(2) : (u.balance ?? 0))}</td>
+            <td>${u.status ?? ""}</td>
+            <td>${u.inviteCode ?? u.invite_code ?? ""}</td>
+            <td>${u.referredBy ?? ""}</td>
+            <td>
+              <button class="action-btn edit" onclick="openEditUserModal('${u.username}')">Edit</button>
+              <button class="action-btn suspend" onclick="setUserStatus('${u.username}', 'Suspended')" ${u.status === "Suspended" ? "disabled" : ""}>Suspend</button>
+              <button class="action-btn activate" onclick="setUserStatus('${u.username}', 'Active')" ${u.status === "Active" ? "disabled" : ""}>Activate</button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    // CREATE USER modal handlers
+    document.getElementById('addUserBtn').addEventListener('click', () => {
+      document.getElementById('createMsg').textContent = '';
+      document.getElementById('createUserModal').style.display = 'block';
+    });
+    function closeCreateUserModal() {
+      document.getElementById('createUserModal').style.display = 'none';
+    }
+
+    async function createUser() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) {
+        showToast('Admin token missing. Login via admin panel and store token in localStorage as "adminToken".', '#d32f2f');
+        return;
+      }
+
+      const username = document.getElementById('createUsername').value.trim();
+      const phone = document.getElementById('createPhone').value.trim();
+      const loginPassword = document.getElementById('createLoginPassword').value;
+      const withdrawPassword = document.getElementById('createWithdrawPassword').value;
+      const inviteCode = document.getElementById('createInviteCode').value.trim();
+      const referredBy = document.getElementById('createReferredBy').value.trim();
+      const vipLevel = Number(document.getElementById('createVipLevel').value) || 1;
+      const balance = Number(document.getElementById('createBalance').value) || 0;
+
+      if (!username || !phone || !loginPassword || !withdrawPassword) {
+        document.getElementById('createMsg').textContent = 'Please fill required fields.';
+        return;
+      }
+
+      document.getElementById('createSaveBtn').disabled = true;
+      document.getElementById('createMsg').textContent = 'Creating...';
+
+      try {
+        // first create minimal user via existing endpoint
+        const createPayload = { username, phone, vipLevel, balance };
+        const createRespRaw = await fetch('/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+          body: JSON.stringify(createPayload)
+        });
+        const createResp = await createRespRaw.json();
+
+        // if creation failed due to exists, continue to update fields; otherwise if error, show message.
+        if (createResp && createResp.success === false && createResp.message && !createResp.message.toLowerCase().includes('exists')) {
+          throw new Error(createResp.message || 'Failed to create user');
+        }
+
+        // prepare updates for full registration fields
+        const updates = {
+          loginPassword,
+          withdrawPassword,
+          inviteCode: inviteCode || undefined,
+          referredBy: referredBy || undefined
+        };
+        // remove undefined keys
+        Object.keys(updates).forEach(k => updates[k] === undefined && delete updates[k]);
+
+        if (Object.keys(updates).length > 0) {
+          const updateRespRaw = await fetch(`/admin/user/${encodeURIComponent(username)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'x-admin-token': token },
+            body: JSON.stringify({ action: 'edit', updates })
+          });
+          const updateResp = await updateRespRaw.json();
+          if (!updateResp || updateResp.success === false) {
+            throw new Error(updateResp.message || 'Failed to set user fields');
+          }
+        }
+
+        document.getElementById('createMsg').textContent = 'Created and linked.';
+        showToast('User created and linked', 'green');
+        closeCreateUserModal();
+        fetchUsers();
+      } catch (err) {
+        console.error(err);
+        document.getElementById('createMsg').textContent = 'Error: ' + (err.message || 'Unknown');
+        showToast('Error creating user', '#d32f2f');
+      } finally {
+        document.getElementById('createSaveBtn').disabled = false;
+      }
+    }
+
+    document.getElementById('createUserForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      createUser();
+    });
+
+    // Edit User Modal functions
+    async function openEditUserModal(username) {
+      const token = localStorage.getItem('adminToken');
+      if (!token) {
+        showToast('Admin token missing', '#d32f2f');
+        return;
+      }
+      const res = await fetch(`/admin/users/${encodeURIComponent(username)}`, {
+        headers: { 'x-admin-token': token }
+      });
+      const data = await res.json();
+      const user = data.user || data;
+      if (!user) {
+        showToast('User not found', '#d32f2f');
+        return;
+      }
+      currentEditUser = user;
+
+      document.getElementById("editUsername").textContent = user.username;
+      document.getElementById("editPhone").value = user.phone ?? "";
+      document.getElementById("editVip").value = user.vipLevel ?? 1;
+      document.getElementById("editBalance").value = user.balance ?? 0;
+      document.getElementById("editStatus").value = user.status ?? "Active";
+      document.getElementById("editLoginPassword").value = "";
+      document.getElementById("editWithdrawPassword").value = "";
+      document.getElementById("editInviteCode").value = user.inviteCode || user.invite_code || "";
+      document.getElementById("editReferredBy").value = user.referredBy || "";
+      document.getElementById("editUserModal").style.display = "block";
+    }
+    function closeEditUserModal() {
+      document.getElementById("editUserModal").style.display = "none";
+    }
+
+    document.getElementById("editUserForm").onsubmit = async function(e) {
+      e.preventDefault();
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+
+      const updates = {
+        phone: document.getElementById("editPhone").value,
+        vipLevel: Number(document.getElementById("editVip").value),
+        balance: Number(document.getElementById("editBalance").value),
+        status: document.getElementById("editStatus").value
+      };
+
+      const loginPwd = document.getElementById("editLoginPassword").value;
+      const withdrawPwd = document.getElementById("editWithdrawPassword").value;
+      const inviteCode = document.getElementById("editInviteCode").value.trim();
+      const referredBy = document.getElementById("editReferredBy").value.trim();
+
+      if (loginPwd) updates.loginPassword = loginPwd;
+      if (withdrawPwd) updates.withdrawPassword = withdrawPwd;
+      if (inviteCode) updates.inviteCode = inviteCode;
+      if (referredBy) updates.referredBy = referredBy;
+
+      try {
+        const res = await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+          method: 'PUT',
+          headers: {
+            "Content-Type": "application/json",
+            "x-admin-token": token
+          },
+          body: JSON.stringify({ action: "edit", updates })
+        });
+        const j = await res.json();
+        if (!j || j.success === false) throw new Error(j.message || 'Failed to update');
+        showToast("User updated!");
+        closeEditUserModal();
+        fetchUsers();
+      } catch (err) {
+        console.error(err);
+        showToast('Update failed', '#d32f2f');
+      }
+    };
+
+    // Suspend/activate via admin endpoint
+    async function setUserStatus(username, status) {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      await fetch(`/admin/user/${encodeURIComponent(username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: status === "Suspended" ? "suspend" : "activate" })
+      });
+      showToast("Status changed!");
+      fetchUsers();
+    }
+
+    // --- Edit modal actions: reset password and balance operations ---
+    function showResetPasswordModal() {
+      document.getElementById("resetUsername").textContent = currentEditUser.username;
+      document.getElementById("newPasswordInput").value = "";
+      document.getElementById("resetPasswordModal").style.display = "block";
+    }
+    function closeResetPasswordModal() {
+      document.getElementById("resetPasswordModal").style.display = "none";
+    }
+    async function resetPassword() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      const newPassword = document.getElementById("newPasswordInput").value;
+      if (!newPassword) return showToast("Enter new password!", "#d32f2f");
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: "reset_password", newPassword })
+      });
+      showToast("Password reset!");
+      closeResetPasswordModal();
+    }
+
+    function showAddRemoveBalanceModal() {
+      document.getElementById("balanceUsername").textContent = currentEditUser.username;
+      document.getElementById("balanceAmountInput").value = "";
+      document.getElementById("balanceModal").style.display = "block";
+    }
+    function closeBalanceModal() {
+      document.getElementById("balanceModal").style.display = "none";
+    }
+    async function addBalance() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      const amount = Number(document.getElementById("balanceAmountInput").value);
+      if (!amount) return showToast("Enter amount!", "#d32f2f");
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: "add_balance", amount })
+      });
+      showToast("Balance added!");
+      closeBalanceModal();
+      fetchUsers();
+    }
+    async function removeBalance() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      const amount = Number(document.getElementById("balanceAmountInput").value);
+      if (!amount) return showToast("Enter amount!", "#d32f2f");
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: "remove_balance", amount })
+      });
+      showToast("Balance removed!");
+      closeBalanceModal();
+      fetchUsers();
+    }
+
+    async function upgradeVip() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: "upgrade_vip" })
+      });
+      showToast("VIP upgraded!");
+      fetchUsers();
+    }
+    async function downgradeVip() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: "downgrade_vip" })
+      });
+      showToast("VIP downgraded!");
+      fetchUsers();
+    }
+    async function resetUserBalance() {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: "reset_balance" })
+      });
+      showToast("Balance reset!");
+      fetchUsers();
+    }
+    async function setStatus(status) {
+      const token = localStorage.getItem('adminToken');
+      if (!token) { showToast('Admin token missing', '#d32f2f'); return; }
+      await fetch(`/admin/user/${encodeURIComponent(currentEditUser.username)}`, {
+        method: 'PUT',
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ action: status === "Suspended" ? "suspend" : "activate" })
+      });
+      showToast("Status changed!");
+      fetchUsers();
+    }
+
+    // Modal close on outside click
+    window.onclick = function(event) {
+      if (event.target.classList.contains('modal')) {
+        event.target.style.display = "none";
+      }
+    }
+
+    // Initial load
+    fetchUsers();
+  </script>
+</body>
+</html>
+```

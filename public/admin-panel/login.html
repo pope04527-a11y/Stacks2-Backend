@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Admin Login</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      min-height: 100vh;
+      min-width: 100vw;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #191c22 url('/assets/Backendbg.jpg') no-repeat center center fixed;
+      background-size: cover;
+      font-family: 'Inter', Arial, sans-serif;
+      overflow: hidden;
+    }
+    .admin-bg-overlay {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(18, 22, 33, 0.63);
+      z-index: 1;
+      pointer-events: none;
+    }
+    .login-box {
+      position: relative;
+      z-index: 2;
+      background: rgba(25, 28, 34, 0.98);
+      padding: 36px 32px 30px 32px;
+      border-radius: 15px;
+      box-shadow: 0 6px 42px 0 #00000033, 0 0px 0px 1.5px #fff1;
+      width: 336px;
+      max-width: 90vw;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      backdrop-filter: blur(2.5px);
+      border: 1.5px solid #22272e;
+    }
+    .login-box h2 {
+      color: #fff;
+      text-align: center;
+      margin-bottom: 27px;
+      font-weight: 800;
+      font-size: 1.6rem;
+      letter-spacing: .01em;
+      text-shadow: 0 2px 8px #000b;
+    }
+    input {
+      display: block;
+      width: 100%;
+      padding: 13px 14px 13px 17px;
+      margin-bottom: 17px;
+      font-size: 1.09rem;
+      border: none;
+      border-radius: 8px;
+      background: #21242c;
+      color: #fff;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      box-shadow: 0 2px 7px #0003;
+      outline: none;
+      transition: background 0.18s, box-shadow 0.12s;
+    }
+    input:focus {
+      background: #23272f;
+      box-shadow: 0 2px 15px #2970f31c;
+    }
+    input::placeholder {
+      color: #959dad;
+      font-weight: 500;
+      font-size: 1.06rem;
+      opacity: 1;
+    }
+    button {
+      width: 100%;
+      padding: 14px 0;
+      background: linear-gradient(90deg, #2970f3 0%, #2958f3 100%);
+      color: #fff;
+      border: none;
+      font-size: 1.18rem;
+      font-weight: 700;
+      border-radius: 8px;
+      cursor: pointer;
+      box-shadow: 0 3px 14px #2970f322;
+      transition: background 0.16s, box-shadow 0.13s;
+      margin-top: 8px;
+      letter-spacing: 0.01em;
+    }
+    button:disabled {
+      background: #6c8ad9;
+      cursor: not-allowed;
+    }
+    button:hover:enabled {
+      background: linear-gradient(90deg, #2253a8 0%, #224b99 100%);
+      box-shadow: 0 6px 22px #2970f340;
+    }
+    .error {
+      color: #ff4757;
+      background: #24252c;
+      border-radius: 6px;
+      padding: 7px 0 4px 0;
+      width: 100%;
+      text-align: center;
+      margin-top: 11px;
+      font-size: 1.04rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      min-height: 18px;
+    }
+    .success {
+      color: #27cc6c;
+      background: #232e25;
+    }
+    @media (max-width: 600px) {
+      .login-box {
+        padding: 22px 8vw 26px 8vw;
+        border-radius: 11px;
+        width: 95vw;
+        min-width: 0;
+      }
+      .login-box h2 {
+        font-size: 1.23rem;
+        margin-bottom: 15px;
+      }
+      button {
+        font-size: 1rem;
+        padding: 13px 0;
+      }
+      input {
+        font-size: 1rem;
+        padding: 11px 10px 11px 13px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="admin-bg-overlay"></div>
+  <div class="login-box">
+    <h2>Admin Login</h2>
+    <input type="text" id="username" placeholder="Username" autocomplete="username" />
+    <input type="password" id="password" placeholder="Password" autocomplete="current-password" />
+    <button id="loginBtn" onclick="login()" type="button">Login</button>
+    <div class="error" id="errorMsg"></div>
+  </div>
+
+  <script>
+    async function login() {
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      const errorMsg = document.getElementById("errorMsg");
+      const loginBtn = document.getElementById("loginBtn");
+      errorMsg.textContent = "";
+      errorMsg.className = "error";
+      loginBtn.disabled = true;
+
+      try {
+        const res = await fetch('/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include', // important for CORS with credentials:true; remove if not needed
+          body: JSON.stringify({ username, password })
+        });
+
+        // Handle CORS/network errors
+        if (res.type === "opaque") {
+          errorMsg.textContent = "CORS error or server unreachable.";
+          loginBtn.disabled = false;
+          return;
+        }
+
+        let data = {};
+        try {
+          data = await res.json();
+        } catch (err) {
+          errorMsg.textContent = "Invalid server response.";
+          loginBtn.disabled = false;
+          return;
+        }
+
+        if (res.ok && data.success && data.token) {
+          // Save token for future API calls
+          localStorage.setItem("adminToken", data.token);
+          errorMsg.className = "error success";
+          errorMsg.textContent = "Login successful! Redirecting...";
+          setTimeout(() => {
+            window.location.href = "/admin-panel/index.html";
+          }, 700);
+        } else {
+          errorMsg.textContent = (data && data.message) ? data.message : "Invalid credentials.";
+        }
+      } catch (err) {
+        errorMsg.textContent = "Network/server error. Please try again.";
+      } finally {
+        loginBtn.disabled = false;
+      }
+    }
+
+    // Optional: allow pressing Enter to submit
+    document.getElementById("password").addEventListener("keypress", function(event) {
+      if (event.key === "Enter") {
+        login();
+      }
+    });
+    document.getElementById("username").addEventListener("keypress", function(event) {
+      if (event.key === "Enter") {
+        login();
+      }
+    });
+  </script>
+</body>
+</html>

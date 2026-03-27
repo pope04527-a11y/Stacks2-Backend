@@ -1,0 +1,204 @@
+/**
+ * Single-file admin credit score endpoint + withdraw enforcement middleware.
+ *
+ * Drop this file into your repo at: routes/admin/creditScore.js
+ * Then in index.js (or where you mount admin routes) add:
+ *   const adminCreditRouter = require('./routes/admin/creditScore');
+ *   app.use('/admin', adminCreditRouter);
+ *
+ * This file exports:
+ *  - an Express router with:
+ *      PATCH /users/:userId/credit_score    (admin-only)
+ *  - middleware function: enforceCreditScore(min = 100)
+ *      Use this in your withdraw route to block withdrawals when user's credit score < min.
+ *
+ * Auth:
+ *  - Preferred: your app sets req.user (e.g. from JWT/session) with req.user.id and req.user.isAdmin.
+ *  - Fallback admin auth: pass header X-Admin-Token equal to process.env.ADMIN_TOKEN.
+ *
+ * Notes:
+ *  - This file creates a CreditScoreAudit mongoose model if not already defined.
+ *  - It tries to use mongoose.models.User if your User model is already registered; otherwise it will
+ *    attempt to require('../src/models/User') (adjust that require if your User model lives elsewhere).
+ *  - Uses mongoose transactions (works on Atlas / replica-set). If not supported, the code still works
+ *    but will run without a transaction.
+ */
+
+const express = require('express');
+const mongoose = require('mongoose');
+
+const router = express.Router();
+
+// Try to reuse already-registered User model, otherwise attempt to require it.
+// Adjust the require path if your User model is located elsewhere.
+const User = mongoose.models.User || (() => {
+  try {
+    // Common location in this project layout
+    return require('../src/models/User');
+  } catch (e) {
+    // As a final fallback, throw a clear error
+    throw new Error('User model not found. Please ensure you have a User model registered with mongoose or adjust the require path in routes/admin/creditScore.js');
+  }
+})();
+
+// Define CreditScoreAudit model (single-file, safe register)
+const CreditScoreAuditSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  oldScore: { type: Number, default: null },
+  newScore: { type: Number, required: true },
+  changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null }, // admin id (may be null if using token fallback)
+  reason: { type: String, default: null },
+  createdAt: { type: Date, default: Date.now },
+});
+const CreditScoreAudit = mongoose.models.CreditScoreAudit || mongoose.model('CreditScoreAudit', CreditScoreAuditSchema);
+
+// Admin guard middleware (single-file, fallback to ADMIN_TOKEN if needed)
+function requireAdmin(req, res, next) {
+  try {
+    // Preferred path: auth middleware populated req.user with isAdmin flag
+    if (req.user && req.user.isAdmin) return next();
+
+    // Fallback: verify X-Admin-Token header
+    const adminHeader = req.header('X-Admin-Token') || req.header('x-admin-token') || req.header('x-admin-secret');
+    const adminToken = process.env.ADMIN_TOKEN;
+    if (adminHeader && adminToken && adminHeader === adminToken) {
+      // Synthesize minimal req.user for auditing
+      req.user = req.user || {};
+      req.user.isAdmin = true;
+      // Leave req.user.id as-is if present; otherwise null
+      return next();
+    }
+
+    return res.status(403).json({ success: false, message: 'Admin access required' });
+  } catch (err) {
+    console.error('requireAdmin error', err);
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+}
+
+// Helper: validate numeric credit score (0-100)
+function parseAndValidateCreditScore(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0 || n > 100) return null;
+  // if you prefer integer: return Math.round(n);
+  return n;
+}
+
+// PATCH /admin/users/:userId/credit_score
+// Body: { creditScore: number (0-100), reason?: string }
+router.patch('/users/:userId/credit_score', requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { creditScore, reason } = req.body;
+  const adminId = req.user && req.user.id ? req.user.id : null;
+
+  const parsed = parseAndValidateCreditScore(creditScore);
+  if (parsed === null) {
+    return res.status(400).json({ success: false, message: 'creditScore must be a number between 0 and 100' });
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    return res.status(400).json({ success: false, message: 'Invalid userId' });
+  }
+
+  // Use transaction when possible (Atlas / replica set)
+  let session = null;
+  try {
+    session = await mongoose.startSession();
+    let updatedUser = null;
+
+    // run transaction if supported; fallback to non-transactional flow if not
+    await session.withTransaction
+      ? await session.withTransaction(async () => {
+          const user = await User.findById(userId).session(session);
+          if (!user) throw { status: 404, message: 'User not found' };
+
+          const oldScore = typeof user.credit_score === 'number'
+            ? user.credit_score
+            : (typeof user.creditScore === 'number' ? user.creditScore : 100);
+
+          // update fields (normalize both possible field names)
+          user.credit_score = parsed;
+          user.creditScore = parsed;
+          user.updatedAt = new Date();
+
+          updatedUser = await user.save({ session });
+
+          // create audit record
+          await CreditScoreAudit.create([{
+            userId: user._id,
+            oldScore,
+            newScore: parsed,
+            changedBy: adminId || null,
+            reason: reason || null
+          }], { session });
+        })
+      : // fallback if session.withTransaction is not available
+        await (async () => {
+          const user = await User.findById(userId);
+          if (!user) throw { status: 404, message: 'User not found' };
+
+          const oldScore = typeof user.credit_score === 'number'
+            ? user.credit_score
+            : (typeof user.creditScore === 'number' ? user.creditScore : 100);
+
+          user.credit_score = parsed;
+          user.creditScore = parsed;
+          user.updatedAt = new Date();
+
+          updatedUser = await user.save();
+
+          await CreditScoreAudit.create({
+            userId: user._id,
+            oldScore,
+            newScore: parsed,
+            changedBy: adminId || null,
+            reason: reason || null
+          });
+        })();
+
+    if (session) session.endSession();
+
+    return res.json({
+      success: true,
+      message: 'Credit score updated',
+      user: { id: updatedUser._id, credit_score: updatedUser.credit_score, creditScore: updatedUser.creditScore }
+    });
+  } catch (err) {
+    if (session) session.endSession();
+    console.error('admin creditScore update error', err);
+    if (err && err.status) return res.status(err.status).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+});
+
+/**
+ * Middleware: enforceCreditScore(min = 100)
+ * Usage:
+ *   const { enforceCreditScore } = require('./routes/admin/creditScore');
+ *   router.post('/withdraw', authMiddleware, enforceCreditScore(100), withdrawHandler);
+ *
+ * If the user's credit score < min, a 403 is returned with message:
+ *  'Please update your credit score to proceed with the withdrawals.'
+ */
+function enforceCreditScore(min = 100) {
+  return async function (req, res, next) {
+    try {
+      const userId = req.user && req.user.id;
+      if (!userId) return res.status(401).json({ success: false, message: 'Unauthorized' });
+
+      const user = await User.findById(userId).select('credit_score creditScore').lean();
+      const credit = Number(user?.credit_score ?? user?.creditScore ?? 0);
+      if (credit < min) {
+        return res.status(403).json({ success: false, message: 'Please update your credit score to proceed with the withdrawals.' });
+      }
+      return next();
+    } catch (err) {
+      console.error('enforceCreditScore error', err);
+      return res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  };
+}
+
+// Export router and middleware
+module.exports = router;
+module.exports.enforceCreditScore = enforceCreditScore;
