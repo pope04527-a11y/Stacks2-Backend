@@ -61,7 +61,7 @@ app.use(
       "https://www.stacksl.com",
       "https://stacksapp.pages.dev",
       "http://localhost:5173",
-      "https://stacksapp-frontend.onrender.com",
+      "https://stacks-48in.onrender.com",
       "https://stacksl.netlify.app",
     ],
     credentials: true,
