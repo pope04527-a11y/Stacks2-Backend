@@ -1,14 +1,24 @@
 // ==========================
 // MONGODB CONNECTION SETUP
 // ==========================
+require("dotenv").config(); // load env early so process.env is available before connecting
+
 const mongoose = require("mongoose");
+
+// Prefer environment variable for URI; fall back to the existing literal (kept for compatibility)
 const mongoURI =
+  process.env.MONGODB_URI ||
   "mongodb+srv://Stacks2:Mark075555@stacks.surpuwe.mongodb.net/Stacks?retryWrites=true&w=majority&appName=Stacks";
 
+// Optional explicit DB name via env (if you prefer not to include DB in URI)
+const dbName = process.env.MONGODB_DB || undefined;
+
+// Build connection options only when needed
+const connectOpts = {};
+if (dbName) connectOpts.dbName = dbName;
+
 mongoose
-  .connect(mongoURI, {
-    dbName: "test", // Use your Atlas database name if different
-  })
+  .connect(mongoURI, connectOpts)
   .then(() => {
     console.log("✅ Connected to MongoDB Atlas!");
     try {
