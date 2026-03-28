@@ -3,7 +3,7 @@
 // ==========================
 const mongoose = require("mongoose");
 const mongoURI =
-  "mongodb+srv://Stacks2:Mark075555@stacks.surpuwe.mongodb.net/?retryWrites=true&w=majority&appName=Stacks";
+  "mongodb+srv://Stacks2:Mark075555@stacks.surpuwe.mongodb.net/Stacks?retryWrites=true&w=majority&appName=Stacks";
 
 mongoose
   .connect(mongoURI, {
